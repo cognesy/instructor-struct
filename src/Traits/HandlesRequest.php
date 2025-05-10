@@ -3,7 +3,7 @@
 namespace Cognesy\Instructor\Traits;
 
 use Cognesy\Http\Contracts\CanHandleHttpRequest;
-use Cognesy\Instructor\Features\Core\Data\StructuredOutputRequest;
+use Cognesy\Instructor\Data\StructuredOutputRequest;
 use Cognesy\Instructor\Instructor;
 use Cognesy\Polyglot\LLM\Contracts\CanHandleInference;
 use Cognesy\Polyglot\LLM\Data\LLMConfig;
@@ -28,7 +28,17 @@ trait HandlesRequest
         return (new Instructor)->withConnection($connection);
     }
 
+    public static function fromDSN(string $dsn) : Instructor {
+        return (new Instructor)->withDSN($dsn);
+    }
+
     // PUBLIC /////////////////////////////////////////////////////////////////////
+
+    public function withDSN(string $dsn) : static {
+        $llm = LLM::fromDSN($dsn);
+        $this->llm = $llm;
+        return $this;
+    }
 
     public function withLLM(LLM $llm) : static {
         $this->llm = $llm;
