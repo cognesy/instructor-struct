@@ -2,19 +2,12 @@
 
 namespace Cognesy\Instructor\Traits;
 
-use Cognesy\Instructor\Features\Deserialization\Contracts\CanDeserializeClass;
-use Cognesy\Instructor\Features\Deserialization\ResponseDeserializer;
-use Cognesy\Instructor\Features\Transformation\Contracts\CanTransformObject;
-use Cognesy\Instructor\Features\Transformation\ResponseTransformer;
-use Cognesy\Instructor\Features\Validation\Contracts\CanValidateObject;
-use Cognesy\Instructor\Features\Validation\ResponseValidator;
+use Cognesy\Instructor\Deserialization\Contracts\CanDeserializeClass;
+use Cognesy\Instructor\Transformation\Contracts\CanTransformObject;
+use Cognesy\Instructor\Validation\Contracts\CanValidateObject;
 
 trait HandlesOverrides
 {
-    private ResponseDeserializer $responseDeserializer;
-    private ResponseValidator $responseValidator;
-    private ResponseTransformer $responseTransformer;
-
     // VALIDATORS //////////////////////////////////////////////////////////
 
     public function setValidator(CanValidateObject $validator) : static {

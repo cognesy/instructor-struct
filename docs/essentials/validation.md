@@ -14,7 +14,7 @@ class Person {
 
 $text = "His name is Jason, he is -28 years old.";
 
-$person = (new Instructor)->respond(
+$person = (new StructuredOutput)->generate(
     messages: $text,
     responseModel: Person::class,
 );
@@ -44,7 +44,7 @@ class Person {
 
 $text = "His name is JX, aka Jason, he is -28 years old.";
 
-$person = (new Instructor)->respond(
+$person = (new StructuredOutput)->generate(
     messages: $text,
     responseModel: Person::class,
     maxRetries: 3,
@@ -60,7 +60,7 @@ and defining validation logic in ```validate()``` method.
 
 ```php
 <?php
-use Cognesy\Instructor\Features\Validation\Traits\ValidationMixin;
+use Cognesy\Instructor\Validation\Traits\ValidationMixin;
 
 class UserDetails
 {
@@ -81,7 +81,7 @@ class UserDetails
     }
 }
 
-$user = (new Instructor)->respond(
+$user = (new StructuredOutput)->generate(
     messages: [['role' => 'user', 'content' => 'jason is 25 years old']],
     responseModel: UserDetails::class,
     maxRetries: 2
@@ -116,7 +116,7 @@ You can use ```#[Assert/Callback]``` annotation to build fully customized valida
 
 ```php
 <?php
-use Cognesy\Instructor\Instructor;
+use Cognesy\Instructor\StructuredOutput;
 use Symfony\Component\Validator\Constraints as Assert;
 use Symfony\Component\Validator\Context\ExecutionContextInterface;
 
@@ -136,11 +136,13 @@ class UserDetails
     }
 }
     
-$user = (new Instructor)->respond(
-    messages: [['role' => 'user', 'content' => 'jason is 25 years old']],
-    responseModel: UserDetails::class,
-    maxRetries: 2
-);
+$user = (new StructuredOutput)
+    ->with(
+        messages: [['role' => 'user', 'content' => 'jason is 25 years old']],
+        responseModel: UserDetails::class,
+        maxRetries: 2
+    )
+    ->get();
 
 assert($user->name === "JASON");
 ```

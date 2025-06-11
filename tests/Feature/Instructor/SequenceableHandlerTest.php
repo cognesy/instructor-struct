@@ -1,18 +1,18 @@
 <?php
 
+use Cognesy\Events\Dispatchers\EventDispatcher;
+use Cognesy\Instructor\Config\StructuredOutputConfig;
+use Cognesy\Instructor\Core\PartialsGenerator;
+use Cognesy\Instructor\Core\ResponseModelFactory;
 use Cognesy\Instructor\Data\ResponseModel;
+use Cognesy\Instructor\Deserialization\Deserializers\SymfonyDeserializer;
+use Cognesy\Instructor\Deserialization\ResponseDeserializer;
 use Cognesy\Instructor\Events\Request\SequenceUpdated;
 use Cognesy\Instructor\Extras\Sequence\Sequence;
-use Cognesy\Instructor\Features\Core\PartialsGenerator;
-use Cognesy\Instructor\Features\Core\ResponseModelFactory;
-use Cognesy\Instructor\Features\Deserialization\Deserializers\SymfonyDeserializer;
-use Cognesy\Instructor\Features\Deserialization\ResponseDeserializer;
-use Cognesy\Instructor\Features\Schema\Factories\SchemaFactory;
-use Cognesy\Instructor\Features\Schema\Factories\ToolCallBuilder;
-use Cognesy\Instructor\Features\Schema\Utils\ReferenceQueue;
-use Cognesy\Instructor\Features\Transformation\ResponseTransformer;
-use Cognesy\Polyglot\LLM\Data\PartialLLMResponse;
-use Cognesy\Utils\Events\EventDispatcher;
+use Cognesy\Instructor\Transformation\ResponseTransformer;
+use Cognesy\Polyglot\Inference\Data\PartialInferenceResponse;
+use Cognesy\Schema\Factories\SchemaFactory;
+use Cognesy\Schema\Factories\ToolCallBuilder;
 
 class SimpleItem
 {
@@ -24,18 +24,19 @@ class SimpleItem
 
 function createStreamingGenerator(array $chunks): Generator {
     foreach ($chunks as $chunk) {
-        yield new PartialLLMResponse(contentDelta: $chunk);
+        yield new PartialInferenceResponse(contentDelta: $chunk);
     }
 }
 
 function makeResponseModel($sequence): ResponseModel {
+    $config = new StructuredOutputConfig();
+    $schemaFactory = new SchemaFactory($config->useObjectReferences());
+    $events = new EventDispatcher();
     return (new ResponseModelFactory(
-        toolCallBuilder: new ToolCallBuilder(
-            new SchemaFactory(),
-            new ReferenceQueue(),
-        ),
-        schemaFactory: new SchemaFactory(),
-        events: new EventDispatcher(),
+        toolCallBuilder: new ToolCallBuilder($schemaFactory),
+        schemaFactory: $schemaFactory,
+        config: $config,
+        events: $events,
     ))->fromAny($sequence);
 }
 

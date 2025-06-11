@@ -1,24 +1,24 @@
 <?php
 namespace Cognesy\Instructor\Extras\Mixin;
 
-use Cognesy\Polyglot\LLM\Enums\OutputMode;
-use Cognesy\Polyglot\LLM\LLM;
+use Cognesy\Polyglot\Inference\Enums\OutputMode;
+use Cognesy\Polyglot\Inference\LLMProvider;
 
 interface CanInferSelf
 {
     static public function infer(
         string|array        $messages = '',
         string|array|object $input = '',
-        string              $system = '',
-        string              $prompt = '',
-        array               $examples = [],
-        string              $model = '',
-        int                 $maxRetries = 2,
-        array               $options = [],
-        OutputMode          $mode = OutputMode::Tools,
-        string              $toolName = '',
-        string              $toolDescription = '',
-        string              $retryPrompt = '',
-        ?LLM                $llm = null,
+        string       $system = '',
+        string       $prompt = '',
+        array        $examples = [],
+        string       $model = '',
+        int          $maxRetries = 2,
+        array        $options = [],
+        OutputMode   $mode = OutputMode::Tools,
+        string       $toolName = '',
+        string       $toolDescription = '',
+        string       $retryPrompt = '',
+        ?LLMProvider $llm = null,
     ) : static;
 }

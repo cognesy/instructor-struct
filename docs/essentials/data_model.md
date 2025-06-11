@@ -173,7 +173,7 @@ enum SkillType : string {
 
 $text = "Alex is 25 years old software engineer, who knows PHP, Python and can play the guitar.";
 
-$person = (new Instructor)->respond(
+$person = (new StructuredOutput)->generate(
     messages: [['role' => 'user', 'content' => $text]],
     responseModel: Person::class,
 ); // client is passed explicitly, can specify e.g. different base URL

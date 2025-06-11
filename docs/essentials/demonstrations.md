@@ -22,14 +22,14 @@ array data rendered as JSON text.
 
 ```php
 <?php
-use Cognesy\Instructor\Data\Example;
+use Cognesy\Instructor\Extras\Example\Example;
 
 class User {
     public int $age;
     public string $name;
 }
 
-$user = (new Instructor)->respond(
+$user = (new StructuredOutput)->generate(
     messages: "Our user Jason is 25 years old.",
     responseModel: User::class,
     examples: [
@@ -61,7 +61,7 @@ In case input or output data is an array, Instructor will automatically convert 
 a JSON string before replacing the placeholders.
 
 ```php
-$user = (new Instructor)->respond(
+$user = (new StructuredOutput)->generate(
     messages: "Our user Jason is 25 years old.",
     responseModel: User::class,
     examples: [

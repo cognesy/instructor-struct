@@ -10,7 +10,7 @@ Response model class is a plain PHP class with typehints specifying the types of
 
 ```php
 <?php
-use Cognesy\Instructor\Instructor;
+use Cognesy\Instructor\StructuredOutput;
 
 // Step 0: Create .env file in your project root:
 // OPENAI_API_KEY=your_api_key
@@ -25,10 +25,12 @@ class Person {
 $text = "His name is Jason and he is 28 years old.";
 
 // Step 3: Use Instructor to run LLM inference
-$person = (new Instructor)->respond(
-    messages: [['role' => 'user', 'content' => $text]],
-    responseModel: Person::class,
-);
+$person = (new StructuredOutput)
+    ->with(
+        messages: [['role' => 'user', 'content' => $text]],
+        responseModel: Person::class,
+    )
+    ->get();
 
 // Step 4: Work with structured response data
 assert($person instanceof Person); // true
@@ -58,31 +60,14 @@ You can provide a string instead of an array of messages. This is useful when yo
 
 ```php
 <?php
-use Cognesy\Instructor\Instructor;
+use Cognesy\Instructor\StructuredOutput;
 
-$value = (new Instructor)->respond(
-    messages: "His name is Jason, he is 28 years old.",
-    responseModel: Person::class,
-);
-?>
-```
-
-
-## Alternative way to get results
-
-You can call `request()` method to initiate Instructor with request data
-and then call `get()` to get the response.
-
-```php
-<?php
-use Cognesy\Instructor\Instructor;
-
-$instructor = (new Instructor)->request(
-    messages: "His name is Jason, he is 28 years old.",
-    responseModel: Person::class,
-);
-
-$person = $instructor->get();
+$value = (new StructuredOutput)
+    ->with(
+        messages: "His name is Jason, he is 28 years old.",
+        responseModel: Person::class,
+    )
+    ->get();
 ?>
 ```
 
@@ -93,12 +78,12 @@ Instructor offers a way to use structured data as an input. This is
 useful when you want to use object data as input and get another object
 with a result of LLM inference.
 
-The `input` field of Instructor's `respond()` and `request()` methods
+The `input` field of Instructor's `create()` method
 can be an object, but also an array or just a string.
 
 ```php
 <?php
-use Cognesy\Instructor\Instructor;
+use Cognesy\Instructor\StructuredOutput;
 
 class Email {
     public function __construct(
@@ -114,11 +99,12 @@ $email = new Email(
     body: 'Your account has been updated.'
 );
 
-$translation = (new Instructor)->respond(
-    input: $email,
-    responseModel: Email::class,
-    prompt: 'Translate the text fields of email to Spanish. Keep other fields unchanged.',
-);
+$translation = (new StructuredOutput)->with(
+        input: $email,
+        responseModel: Email::class,
+        prompt: 'Translate the text fields of email to Spanish. Keep other fields unchanged.',
+    )
+    ->get();
 ?>
 ```
 
@@ -131,9 +117,9 @@ processing the data as soon as it is available.
 
 ```php
 <?php
-use Cognesy\Instructor\Instructor;
+use Cognesy\Instructor\StructuredOutput;
 
-$stream = (new Instructor)->request(
+$stream = (new StructuredOutput)->with(
     messages: "His name is Jason, he is 28 years old.",
     responseModel: Person::class,
     options: ['stream' => true]
@@ -146,7 +132,7 @@ foreach ($stream->partials() as $partialPerson) {
 }
 
 // after streaming is done you can get the final, fully processed person object...
-$person = $stream->getLastUpdate()
+$person = $stream->lastUpdate()
 // ...to, for example, save it to the database
 $db->save($person);
 ?>

@@ -1,71 +1,101 @@
 <?php
 namespace Cognesy\Instructor\Data;
 
-use Cognesy\Polyglot\LLM\Enums\OutputMode;
-use Cognesy\Utils\Settings;
+use Cognesy\Instructor\Config\StructuredOutputConfig;
+use Cognesy\Instructor\Extras\Example\Example;
+use Cognesy\Utils\Messages\Message;
+use Cognesy\Utils\Messages\Messages;
 
 class StructuredOutputRequest
 {
-    use \Cognesy\Instructor\Data\Traits\Request\HandlesMessages;
-    use \Cognesy\Instructor\Data\Traits\Request\HandlesRetries;
-    use \Cognesy\Instructor\Data\Traits\Request\HandlesSchema;
+    use Traits\StructuredOutputRequest\HandlesAccess;
+    use Traits\StructuredOutputRequest\HandlesRetries;
+    use Traits\StructuredOutputRequest\HandlesSchema;
+
+    protected Messages $messages;
+    protected string $model = '';
+    protected string $prompt = '';
+    protected string $system = '';
+    /** @var Example[] */
+    protected array $examples = [];
+    protected array $options = [];
+    protected CachedContext $cachedContext;
+    protected string|array|object $requestedSchema = [];
+    protected ?ResponseModel $responseModel = null;
+    protected StructuredOutputConfig $config;
 
     public function __construct(
-        string|array $messages,
-        string|array|object $input,
-        string|array|object $requestedSchema,
-        ResponseModel $responseModel,
-        string        $system,
-        string        $prompt,
-        array         $examples,
-        string        $model,
-        int           $maxRetries,
-        array         $options,
-        string        $toolName,
-        string        $toolDescription,
-        string        $retryPrompt,
-        OutputMode    $mode,
-        array         $cachedContext,
+        string|array|Message|Messages|null $messages = null,
+        string|array|object|null $requestedSchema = null,
+        ?ResponseModel $responseModel = null,
+        ?string        $system = null,
+        ?string        $prompt = null,
+        ?array         $examples = null,
+        ?string        $model = null,
+        ?array         $options = null,
+        ?CachedContext $cachedContext = null,
+        ?StructuredOutputConfig $config = null,
     ) {
-        $this->cachedContext = $cachedContext;
-        $this->options = $options;
-        $this->maxRetries = $maxRetries;
-        $this->mode = $mode;
-        $this->input = $input;
-        $this->prompt = $prompt;
-        $this->retryPrompt = $retryPrompt;
-        $this->examples = $examples;
-        $this->system = $system;
-        $this->model = $model;
-
-        $this->messages = $this->normalizeMessages($messages);
-        $this->toolName = $toolName ?: Settings::get('llm', 'defaultToolName');
-        $this->toolDescription = $toolDescription ?: Settings::get('llm', 'defaultToolDescription');
-
+        $this->messages = Messages::fromAny($messages);
         $this->requestedSchema = $requestedSchema;
         $this->responseModel = $responseModel;
+
+        $this->options = $options ?: [];
+        $this->prompt = $prompt ?: '';
+        $this->examples = $examples ?: [];
+        $this->system = $system ?: '';
+        $this->model = $model ?: '';
+
+        $this->config = $config;
+
+        $this->cachedContext = $cachedContext ?: new CachedContext();
     }
 
     public function toArray() : array {
         return [
-            'messages' => $this->messages,
-            'input' => $this->input,
+            'messages' => $this->messages->toArray(),
             'responseModel' => $this->responseModel,
             'system' => $this->system,
             'prompt' => $this->prompt,
             'examples' => $this->examples,
             'model' => $this->model,
-            'maxRetries' => $this->maxRetries,
             'options' => $this->options,
-            'toolName' => $this->toolName(),
-            'toolDescription' => $this->toolDescription(),
-            'retryPrompt' => $this->retryPrompt,
             'mode' => $this->mode(),
-            'cachedContext' => $this->cachedContext,
+            'cachedContext' => $this->cachedContext?->toArray() ?? [],
+            'config' => $this->config->toArray(),
         ];
     }
 
     public function isStreamed() : bool {
         return $this->options['stream'] ?? false;
+    }
+
+    public function withStreamed(bool $streamed = true) : static {
+        $new = $this->clone();
+        $new->options['stream'] = $streamed;
+        return $new;
+    }
+
+    public function clone() : self {
+        return new self(
+            messages: $this->messages->clone(),
+            requestedSchema: is_object($this->requestedSchema) ? clone $this->requestedSchema : $this->requestedSchema,
+            responseModel: $this->responseModel->clone(),
+            system: $this->system,
+            prompt: $this->prompt,
+            examples: $this->cloneExamples(),
+            model: $this->model,
+            options: $this->options,
+            cachedContext: $this->cachedContext->clone(),
+            config: $this->config->clone(),
+        );
+    }
+
+    private function cloneExamples() {
+        return is_array($this->examples)
+            ? array_map(fn($e) => $e instanceof Example
+                ? $e->clone()
+                : $e, $this->examples)
+            : $this->examples;
     }
 }

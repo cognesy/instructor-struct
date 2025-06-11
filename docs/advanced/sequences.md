@@ -19,10 +19,11 @@ $text = <<<TEXT
     and Anna is 2 years younger than him.
 TEXT;
 
-$list = (new Instructor)->respond(
-    messages: [['role' => 'user', 'content' => $text]],
-    responseModel: Sequence::of(Person::class),
-);
+$list = (new StructuredOutput)
+    ->withResponseClass(Sequence::of(Person::class))
+    ->with(
+        messages: [['role' => 'user', 'content' => $text]],
+    )->get();
 ```
 
 
@@ -62,13 +63,16 @@ $text = <<<TEXT
     and Anna is 2 years younger than him.
 TEXT;
 
-$list = (new Instructor)->request(
-    messages: [['role' => 'user', 'content' => $text]],
-    responseModel: Sequence::of(Person::class),
-    options: ['stream' => true]
-)->onSequenceUpdate(
-    fn($sequence) => updateUI($sequence->last()) // get last added object
-)->get();
+$list = (new StructuredOutput)
+    ->onSequenceUpdate(
+        fn($sequence) => updateUI($sequence->last()) // get last added object
+    )
+    ->withResponseClass(Sequence::of(Person::class))
+    ->with(
+        messages: [['role' => 'user', 'content' => $text]],
+        options: ['stream' => true]
+    )
+    ->get();
 
 // now the list is fully extracted and validated
 foreach ($list as $person) {

@@ -18,19 +18,22 @@ received, but only when any property of the object is updated.
 
 ```php
 <?php
-use Cognesy\Instructor\Instructor;
+use Cognesy\Instructor\StructuredOutput;
 
 function updateUI($person) {
     // Here you get partially completed Person object update UI with the partial result
 }
 
-$person = (new Instructor)->request(
-    messages: "His name is Jason, he is 28 years old.",
-    responseModel: Person::class,
-    options: ['stream' => true]
-)->onPartialUpdate(
-    fn($partial) => updateUI($partial)
-)->get();
+$person = (new StructuredOutput)
+    ->withResponseClass(Person::class)
+    ->with(
+        messages: "His name is Jason, he is 28 years old.",
+        options: ['stream' => true]
+    )
+    ->onPartialUpdate(
+        fn($partial) => updateUI($partial)
+    )
+    ->get();
 
 // Here you get completed and validated Person object
 $this->db->save($person); // ...for example: save to DB
@@ -62,9 +65,9 @@ One more method available on `Stream` is `final()`. It returns only the final re
 
 ```php
 <?php
-use Cognesy\Instructor\Instructor;
+use Cognesy\Instructor\StructuredOutput;
 
-$stream = (new Instructor)->request(
+$stream = (new StructuredOutput)->with(
     messages: "His name is Jason, he is 28 years old.",
     responseModel: Person::class,
 )->stream();
@@ -76,7 +79,7 @@ foreach ($stream->partials() as $update) {
 }
 
 // now you can get final, fully processed person object
-$person = $stream->getLastUpdate();
+$person = $stream->lastUpdate();
 // ...and for example save it to the database
 $db->savePerson($person);
 ```
@@ -86,12 +89,14 @@ $db->savePerson($person);
 
 ```php
 <?php
-use Cognesy\Instructor\Instructor;
+use Cognesy\Instructor\StructuredOutput;
 
-$stream = (new Instructor)->request(
-    messages: "Jason is 28 years old, Amanda is 26 and John (CEO) is 40.",
-    responseModel: Sequence::of(Participant::class),
-)->stream();
+$stream = (new StructuredOutput)
+    ->with(
+        messages: "Jason is 28 years old, Amanda is 26 and John (CEO) is 40.",
+        responseModel: Sequence::of(Participant::class),
+    )
+    ->stream();
 
 foreach ($stream->sequence() as $update) {
     // append last completed item from the sequence
@@ -100,7 +105,7 @@ foreach ($stream->sequence() as $update) {
 }
 
 // now you can get final, fully processed sequence of participants
-$participants = $stream->getLastUpdate();
+$participants = $stream->lastUpdate();
 // ...and for example save it to the database
 $db->saveParticipants($participants->toArray());
 ```

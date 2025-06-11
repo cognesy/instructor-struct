@@ -2,26 +2,26 @@
 
 namespace Cognesy\Instructor\Data;
 
-use Cognesy\Polyglot\LLM\Data\LLMResponse;
+use Cognesy\Polyglot\Inference\Data\InferenceResponse;
 
 class StructuredOutputAttempt {
     private array $messages;
-    private LLMResponse $llmResponse;
-    /** @var \Cognesy\Polyglot\LLM\Data\PartialLLMResponse[] */
-    private array $partialLLMResponses;
+    private InferenceResponse $inferenceResponse;
+    /** @var \Cognesy\Polyglot\Inference\Data\PartialInferenceResponse[] */
+    private array $partialInferenceResponses;
     private array $errors;
     private mixed $output;
 
     public function __construct(
-        array $messages,
-        LLMResponse $llmResponse,
-        array $partialLLMResponses = [],
-        array $errors = [],
-        mixed $output = null
+        array             $messages,
+        InferenceResponse $inferenceResponse,
+        array             $partialInferenceResponses = [],
+        array             $errors = [],
+        mixed             $output = null
     ) {
         $this->messages = $messages;
-        $this->llmResponse = $llmResponse;
-        $this->partialLLMResponses = $partialLLMResponses;
+        $this->inferenceResponse = $inferenceResponse;
+        $this->partialInferenceResponses = $partialInferenceResponses;
         $this->errors = $errors;
         $this->output = $output;
     }
@@ -34,12 +34,12 @@ class StructuredOutputAttempt {
         return $this->messages;
     }
 
-    public function llmResponse() : LLMResponse {
-        return $this->llmResponse;
+    public function inferenceResponse() : InferenceResponse {
+        return $this->inferenceResponse;
     }
 
-    public function partialLLMResponses() : array {
-        return $this->partialLLMResponses;
+    public function partialInferenceResponses() : array {
+        return $this->partialInferenceResponses;
     }
 
     public function errors() : array {

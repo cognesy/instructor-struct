@@ -2,22 +2,6 @@
 
 namespace Cognesy\Instructor\Events\Response;
 
-use Cognesy\Instructor\Features\Validation\ValidationResult;
-use Cognesy\Utils\Events\Event;
-use Cognesy\Utils\Json\Json;
-use Psr\Log\LogLevel;
+use Cognesy\Events\Event;
 
-class ResponseValidated extends Event
-{
-    public $logLevel = LogLevel::INFO;
-
-    public function __construct(
-        public ValidationResult $validationResult
-    ) {
-        parent::__construct();
-    }
-
-    public function __toString(): string {
-        return Json::encode($this->validationResult);
-    }
-}
+final class ResponseValidated extends Event {}

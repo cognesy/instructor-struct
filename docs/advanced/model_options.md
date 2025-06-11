@@ -8,7 +8,7 @@ Lower values make the output more deterministic, while higher values make it mor
 
 ```php
 <?php
-$person = (new Instructor)->respond(
+$person = (new StructuredOutput)->with(
     messages: [['role' => 'user', 'content' => $text]],
     responseModel: Person::class,
     model: 'gpt-3.5-turbo',
@@ -17,7 +17,7 @@ $person = (new Instructor)->respond(
         'temperature' => 0.0
         // ... other options - e.g. provider or model specific
     ],
-);
+)->get();
 ```
 
 > NOTE: Please note that many options might be specific to the provider or even some model that you are using.
@@ -31,8 +31,7 @@ which might be helpful in the case you are using OpenAI - organization.
 
 ```php
 <?php
-use Cognesy\Instructor\Instructor;
-use Cognesy\Polyglot\LLM\Data\LLMConfig;
+use Cognesy\Instructor\StructuredOutput;use Cognesy\Polyglot\Inference\Config\LLMConfig;
 
 // Create instance of OpenAI client initialized with custom parameters
 $config = new LLMConfig(
@@ -40,18 +39,18 @@ $config = new LLMConfig(
     apiKey: $yourApiKey,
     endpoint: '/chat/completions',
     metadata: ['organization' => ''],
-    model: 'gpt-4o-mini',
-    maxTokens: 128,
-    httpClient: 'guzzle',
-    providerType: 'openai',
+    defaultModel: 'gpt-4o-mini',
+    defaultMaxTokens: 128,
+    httpClientPreset: 'guzzle',
+    driver: 'openai',
 ));
 
 /// Get Instructor with the default configuration overridden with your own
-$instructor = (new Instructor)->withLLMConfig($driver);
+$structuredOutput = (new StructuredOutput)->withLLMConfig($driver);
 
-$person = $instructor->respond(
+$person = $structuredOutput->with(
     messages: [['role' => 'user', 'content' => $text]],
     responseModel: Person::class,
     options: ['temperature' => 0.0],
-);
+)->get();
 ```

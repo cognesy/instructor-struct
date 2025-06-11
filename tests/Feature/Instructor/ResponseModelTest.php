@@ -1,12 +1,12 @@
 <?php
 
-use Cognesy\Instructor\Features\Core\ResponseModelFactory;
-use Cognesy\Instructor\Features\Schema\Factories\SchemaFactory;
-use Cognesy\Instructor\Features\Schema\Factories\ToolCallBuilder;
-use Cognesy\Instructor\Features\Schema\Utils\ReferenceQueue;
-use Cognesy\Utils\Events\EventDispatcher;
+use Cognesy\Events\Dispatchers\EventDispatcher;
+use Cognesy\Instructor\Config\StructuredOutputConfig;
+use Cognesy\Instructor\Core\ResponseModelFactory;
 use Cognesy\Instructor\Tests\Examples\ResponseModel\User;
 use Cognesy\Instructor\Tests\Examples\ResponseModel\UserWithProvider;
+use Cognesy\Schema\Factories\SchemaFactory;
+use Cognesy\Schema\Factories\ToolCallBuilder;
 
 dataset('user_response_model', [[[
     'x-php-class' => 'Cognesy\Instructor\Tests\Examples\ResponseModel\User',
@@ -26,13 +26,12 @@ dataset('user_response_model', [[[
 ]]]);
 
 it('can handle string class name', function() {
+    $events = new EventDispatcher('test');
     $responseModelFactory = new ResponseModelFactory(
-        new ToolCallBuilder(
-            new SchemaFactory(),
-            new ReferenceQueue(),
-        ),
+        new ToolCallBuilder(new SchemaFactory()),
         new SchemaFactory(),
-        new EventDispatcher('test'),
+        new StructuredOutputConfig(),
+        $events,
     );
     $responseModel = $responseModelFactory->fromAny(User::class);
     expect($responseModel->instanceClass())->toBe(User::class);
@@ -52,13 +51,12 @@ it('can handle string class name', function() {
 });
 
 it('can handle array schema', function($user) {
+    $events = new EventDispatcher('test');
     $responseModelFactory = new ResponseModelFactory(
-        new ToolCallBuilder(
-            new SchemaFactory(),
-            new ReferenceQueue(),
-        ),
+        new ToolCallBuilder(new SchemaFactory()),
         new SchemaFactory(),
-        new EventDispatcher('test'),
+        new StructuredOutputConfig(),
+        $events,
     );
     $responseModel = $responseModelFactory->fromAny($user);
     expect($responseModel->instanceClass())->toBe(User::class);
@@ -78,13 +76,12 @@ it('can handle array schema', function($user) {
 })->with('user_response_model');
 
 it('can handle schema provider - via instance', function() {
+    $events = new EventDispatcher('test');
     $responseModelFactory = new ResponseModelFactory(
-        new ToolCallBuilder(
-            new SchemaFactory(),
-            new ReferenceQueue(),
-        ),
+        new ToolCallBuilder(new SchemaFactory()),
         new SchemaFactory(),
-        new EventDispatcher('test'),
+        new StructuredOutputConfig(),
+        $events,
     );
     $responseModel = $responseModelFactory->fromAny(new UserWithProvider());
     expect($responseModel->instanceClass())->toBe(UserWithProvider::class);
@@ -105,13 +102,12 @@ it('can handle schema provider - via instance', function() {
 });
 
 it('can handle schema provider - via class name', function() {
+    $events = new EventDispatcher('test');
     $responseModelFactory = new ResponseModelFactory(
-        new ToolCallBuilder(
-            new SchemaFactory(),
-            new ReferenceQueue(),
-        ),
+        new ToolCallBuilder(new SchemaFactory()),
         new SchemaFactory(),
-        new EventDispatcher('test'),
+        new StructuredOutputConfig(),
+        $events,
     );
     $responseModel = $responseModelFactory->fromAny(UserWithProvider::class);
     expect($responseModel->instanceClass())->toBe(UserWithProvider::class);
@@ -132,13 +128,12 @@ it('can handle schema provider - via class name', function() {
 });
 
 it('can handle ObjectSchema instance', function() {
+    $events = new EventDispatcher('test');
     $responseModelFactory = new ResponseModelFactory(
-        new ToolCallBuilder(
-            new SchemaFactory(),
-            new ReferenceQueue(),
-        ),
+        new ToolCallBuilder(new SchemaFactory()),
         new SchemaFactory(),
-        new EventDispatcher('test'),
+        new StructuredOutputConfig(),
+        $events,
     );
     $schemaFactory = new SchemaFactory();
     $schema = $schemaFactory->schema(User::class);
@@ -160,13 +155,12 @@ it('can handle ObjectSchema instance', function() {
 });
 
 it('can handle raw object', function() {
+    $events = new EventDispatcher('test');
     $responseModelFactory = new ResponseModelFactory(
-        new ToolCallBuilder(
-            new SchemaFactory(),
-            new ReferenceQueue(),
-        ),
+        new ToolCallBuilder(new SchemaFactory()),
         new SchemaFactory(),
-        new EventDispatcher('test'),
+        new StructuredOutputConfig(),
+        $events,
     );
     $responseModel = $responseModelFactory->fromAny(new User());
     expect($responseModel->instanceClass())->toBe(User::class);
@@ -184,4 +178,3 @@ it('can handle raw object', function() {
     expect($responseModel->toJsonSchema()['required'][0])->toBe('name');
     expect($responseModel->toJsonSchema()['required'][1])->toBe('email');
 });
-
