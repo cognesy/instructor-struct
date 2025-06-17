@@ -178,11 +178,11 @@ class StructuredOutputRequestBuilder
         EventDispatcherInterface $events,
     ): ResponseModel {
         $schemaFactory = new SchemaFactory(
-            $config->useObjectReferences(),
-            new JsonSchemaToSchema(
+            useObjectReferences: $config->useObjectReferences(),
+            schemaConverter: new JsonSchemaToSchema(
                 defaultToolName: $config->toolName(),
                 defaultToolDescription: $config->toolDescription(),
-                defaultOutputClass: $config->defaultOutputClass(),
+                defaultOutputClass: $config->outputClass(),
             )
         );
         $toolCallBuilder = new ToolCallBuilder($schemaFactory);

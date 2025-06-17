@@ -52,7 +52,19 @@ trait HandlesAccessors
         return $this->maxRetries;
     }
 
-    public function defaultOutputClass() : string {
-        return $this->defaultOutputClass;
+    public function outputClass() : string {
+        return $this->outputClass;
+    }
+
+    public function deserializationErrorPrompt() : string {
+        return $this->deserializationErrorPrompt;
+    }
+
+    public function defaultToStdClass() : bool {
+        return $this->defaultToStdClass;
+    }
+
+    public function throwOnTransformationFailure() : bool {
+        return $this->throwOnTransformationFailure;
     }
 }

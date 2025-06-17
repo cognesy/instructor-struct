@@ -2,8 +2,11 @@
 
 namespace Cognesy\Instructor\Config;
 
+use Cognesy\Config\Dsn;
+use Cognesy\Config\Exceptions\ConfigurationException;
 use Cognesy\Instructor\Data\Traits;
 use Cognesy\Polyglot\Inference\Enums\OutputMode;
+use Throwable;
 
 final class StructuredOutputConfig
 {
@@ -11,6 +14,10 @@ final class StructuredOutputConfig
     use Traits\StructuredOutputConfig\HandlesMutators;
 
     public const CONFIG_GROUP = 'structured';
+
+    public static function group() : string {
+        return self::CONFIG_GROUP;
+    }
 
     private ?OutputMode $outputMode = OutputMode::Tools;
     private bool $useObjectReferences = false;
@@ -26,7 +33,10 @@ final class StructuredOutputConfig
     private string $schemaDescription = '';
     private string $toolName = 'extracted_data';
     private string $toolDescription = 'Function call based on user instructions.';
-    private string $defaultOutputClass = 'Cognesy\Instructor\Extras\Structure\Structure';
+    private string $outputClass = 'Cognesy\Instructor\Extras\Structure\Structure';
+    private bool $defaultToStdClass = false;
+    private string $deserializationErrorPrompt = "Failed to serialize response:\n<|json|>\n\nSerializer error:\n<|error|>\n\nExpected schema:\n<|jsonSchema|>\n";
+    private bool $throwOnTransformationFailure = false;
 
     private array $chatStructure = [
         // potentially cached - predefined sections used to construct the script
@@ -45,16 +55,19 @@ final class StructuredOutputConfig
 
     public function __construct(
         ?OutputMode $outputMode = null,
+        ?string     $outputClass = '',
         ?bool       $useObjectReferences = false,
         ?int        $maxRetries = -1,
-        ?string     $retryPrompt = '',
-        ?array      $modePrompts = [],
         ?string     $schemaName = '',
         ?string     $schemaDescription = '',
         ?string     $toolName = '',
         ?string     $toolDescription = '',
+        ?array      $modePrompts = [],
+        ?string     $retryPrompt = '',
         ?array      $chatStructure = [],
-        ?string     $defaultOutputClass = '',
+        ?bool       $defaultToStdClass = false,
+        ?string     $deserializationErrorPrompt = '',
+        ?bool       $throwOnTransformationFailure = false,
     ) {
         $this->outputMode = $outputMode ?: $this->outputMode;
         $this->useObjectReferences = $useObjectReferences ?? $this->useObjectReferences;
@@ -66,11 +79,10 @@ final class StructuredOutputConfig
         $this->toolName = $toolName ?: $this->toolName;
         $this->toolDescription = $toolDescription ?: $this->toolDescription;
         $this->chatStructure = $chatStructure ?: $this->chatStructure;
-        $this->defaultOutputClass = $defaultOutputClass ?: $this->defaultOutputClass;
-    }
-
-    public static function group() : string {
-        return self::CONFIG_GROUP;
+        $this->outputClass = $outputClass ?: $this->outputClass;
+        $this->defaultToStdClass = $defaultToStdClass ?? $this->defaultToStdClass;
+        $this->deserializationErrorPrompt = $deserializationErrorPrompt ?: $this->deserializationErrorPrompt;
+        $this->throwOnTransformationFailure = $throwOnTransformationFailure ?? $this->throwOnTransformationFailure;
     }
 
     public function toArray() : array {
@@ -85,39 +97,74 @@ final class StructuredOutputConfig
             'chatStructure' => $this->chatStructure,
             'schemaName' => $this->schemaName,
             'schemaDescription' => $this->schemaDescription,
-            'defaultOutputClass' => $this->defaultOutputClass,
+            'outputClass' => $this->outputClass,
+            'defaultToStdClass' => $this->defaultToStdClass,
+            'deserializationErrorPrompt' => $this->deserializationErrorPrompt,
+            'throwOnTransformationFailure' => $this->throwOnTransformationFailure,
         ];
     }
 
-    public static function fromArray(array $config): self {
+    public static function fromArray(array $config) : self {
+        try {
+            // Ensure 'outputMode' is set to a valid OutputMode enum value
+            $config['outputMode'] = match(true) {
+                !isset($config['outputMode']) => OutputMode::Tools,
+                is_string($config['outputMode']) => OutputMode::fromText($config['outputMode']),
+                $config['outputMode'] instanceof OutputMode => $config['outputMode'],
+                default => OutputMode::Tools,
+            };
+            $instance = new self(...$config);
+        } catch (Throwable $e) {
+            $data = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            throw new ConfigurationException(
+                message: "Failed to create StructuredOutputConfig from array:\n$data\nError: {$e->getMessage()}",
+                previous: $e
+            );
+        }
+        return $instance;
+    }
+
+    public static function fromDsn(string $dsn) : self {
+        $data = Dsn::fromString($dsn)->toArray();
+        unset($data['preset']);
+        return self::fromArray($data);
+    }
+
+    public function withOverrides(StructuredOutputConfig $overrides) : self {
         return new self(
-            outputMode: $config['outputMode'] ?? null,
-            useObjectReferences: $config['useObjectReferences'] ?? false,
-            maxRetries: $config['maxRetries'] ?? -1,
-            retryPrompt: $config['retryPrompt'] ?? '',
-            modePrompts: $config['modePrompts'] ?? [],
-            schemaName: $config['schemaName'] ?? '',
-            schemaDescription: $config['schemaDescription'] ?? '',
-            toolName: $config['toolName'] ?? '',
-            toolDescription: $config['toolDescription'] ?? '',
-            chatStructure: $config['chatStructure'] ?? [],
-            defaultOutputClass: $config['defaultOutputClass'] ?? ''
+            outputMode                  : $overrides->outputMode ?? $this->outputMode,
+            outputClass                 : $overrides->outputClass ?: $this->outputClass,
+            useObjectReferences         : $overrides->useObjectReferences ?? $this->useObjectReferences,
+            maxRetries                  : $overrides->maxRetries >= 0 ? $overrides->maxRetries : $this->maxRetries,
+            schemaName                  : $overrides->schemaName ?: $this->schemaName,
+            schemaDescription           : $overrides->schemaDescription ?: $this->schemaDescription,
+            toolName                    : $overrides->toolName ?: $this->toolName,
+            toolDescription             : $overrides->toolDescription ?: $this->toolDescription,
+            modePrompts                 : array_merge($this->modePrompts, $overrides->modePrompts),
+            retryPrompt                 : $overrides->retryPrompt ?: $this->retryPrompt,
+            chatStructure               : array_merge($this->chatStructure, $overrides->chatStructure),
+            defaultToStdClass     : $overrides->defaultToStdClass ?? $this->defaultToStdClass,
+            deserializationErrorPrompt  : $overrides->deserializationErrorPrompt ?: $this->deserializationErrorPrompt,
+            throwOnTransformationFailure: $overrides->throwOnTransformationFailure ?? $this->throwOnTransformationFailure,
         );
     }
 
     public function clone() : self {
         return new self(
-            outputMode: $this->outputMode,
-            useObjectReferences: $this->useObjectReferences,
-            maxRetries: $this->maxRetries,
-            retryPrompt: $this->retryPrompt,
-            modePrompts: $this->modePrompts,
-            schemaName: $this->schemaName,
-            schemaDescription: $this->schemaDescription,
-            toolName: $this->toolName,
-            toolDescription: $this->toolDescription,
-            chatStructure: $this->chatStructure,
-            defaultOutputClass: $this->defaultOutputClass
+            outputMode                  : $this->outputMode,
+            outputClass                 : $this->outputClass,
+            useObjectReferences         : $this->useObjectReferences,
+            maxRetries                  : $this->maxRetries,
+            schemaName                  : $this->schemaName,
+            schemaDescription           : $this->schemaDescription,
+            toolName                    : $this->toolName,
+            toolDescription             : $this->toolDescription,
+            modePrompts                 : $this->modePrompts,
+            retryPrompt                 : $this->retryPrompt,
+            chatStructure               : $this->chatStructure,
+            defaultToStdClass     : $this->defaultToStdClass,
+            deserializationErrorPrompt  : $this->deserializationErrorPrompt,
+            throwOnTransformationFailure: $this->throwOnTransformationFailure,
         );
     }
 }

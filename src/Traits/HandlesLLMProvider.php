@@ -11,8 +11,8 @@ trait HandlesLLMProvider
 {
     private ?LLMProvider $llmProvider = null;
 
-    public function withDSN(string $dsn) : static {
-        $this->llmProvider->withDSN($dsn);
+    public function withDsn(string $dsn) : static {
+        $this->llmProvider->withDsn($dsn);
         return $this;
     }
 
@@ -41,12 +41,11 @@ trait HandlesLLMProvider
         return $this;
     }
 
-    /**
-     * Enables or disables debug mode for the current instance.
-     *
-     * @param string $preset Optional. If empty, the default debug preset will be used.
-     * @return static The current instance with the updated debug state.
-     */
+    public function withHttpClientPreset(string $string) : static {
+        $this->llmProvider->withHttpPreset($string);
+        return $this;
+    }
+
     public function withDebugPreset(string $preset) : static {
         $this->llmProvider->withDebugPreset($preset);
         return $this;
