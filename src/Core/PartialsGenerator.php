@@ -17,7 +17,9 @@ use Cognesy\Instructor\Events\PartialsGenerator\StreamedToolCallCompleted;
 use Cognesy\Instructor\Events\PartialsGenerator\StreamedToolCallStarted;
 use Cognesy\Instructor\Events\PartialsGenerator\StreamedToolCallUpdated;
 use Cognesy\Instructor\Transformation\ResponseTransformer;
+use Cognesy\Pipeline\Enums\ErrorStrategy;
 use Cognesy\Pipeline\Pipeline;
+use Cognesy\Pipeline\ProcessingState;
 use Cognesy\Polyglot\Inference\Data\InferenceResponse;
 use Cognesy\Polyglot\Inference\Data\PartialInferenceResponse;
 use Cognesy\Polyglot\Inference\Data\ToolCall;
@@ -158,7 +160,7 @@ class PartialsGenerator implements CanGeneratePartials
         string $partialJson,
         ResponseModel $responseModel
     ) : Result {
-        $pipeline = Pipeline::builder()
+        $pipeline = Pipeline::builder(ErrorStrategy::FailFast)
             ->through(fn($json) => $this->validatePartialResponse($json, $responseModel, $this->preventJsonSchema, $this->matchToExpectedFields))
             ->tap(fn($json) => $this->events->dispatch(new PartialJsonReceived(['partialJson' => $json])))
             ->tap(fn($json) => $this->updateToolCall($json, $responseModel->toolName()))
@@ -170,35 +172,21 @@ class PartialsGenerator implements CanGeneratePartials
             ->create();
 
         return $pipeline
-            ->executeWith($partialJson)
+            ->executeWith(ProcessingState::with($partialJson))
             ->result();
-
-        //        return ResultChain::make()
-        //            ->through(fn() => $this->validatePartialResponse($partialJson, $responseModel, $this->preventJsonSchema, $this->matchToExpectedFields))
-        //            ->tap(fn() => $this->events->dispatch(new PartialJsonReceived(['partialJson' => $partialJson])))
-        //            ->tap(fn() => $this->updateToolCall($partialJson, $responseModel->toolName()))
-        //            ->through(fn() => $this->tryGetPartialObject($partialJson, $responseModel))
-        //            ->onFailure(fn($result) => $this->events->dispatch(
-        //                new PartialResponseGenerationFailed(Arrays::asArray($result->error()))
-        //            ))
-        //            ->then(fn($result) => $this->getChangedOnly($result))
-        //            ->result();
     }
 
     protected function tryGetPartialObject(
         string $partialJsonData,
         ResponseModel $responseModel,
     ) : Result {
-        $pipeline = Pipeline::builder()
+        $pipeline = Pipeline::builder(ErrorStrategy::FailFast)
             ->through(fn($json) => $this->responseDeserializer->deserialize($json, $responseModel, $this->toolCalls->last()?->name()))
             ->through(fn($object) => $this->responseTransformer->transform($object))
             ->create();
-        return $pipeline->executeWith(Json::fromPartial($partialJsonData)->toString())->result();
 
-        //        return ResultChain::from(fn() => Json::fromPartial($partialJsonData)->toString())
-        //            ->through(fn($json) => $this->responseDeserializer->deserialize($json, $responseModel, $this->toolCalls->last()?->name()))
-        //            ->through(fn($object) => $this->responseTransformer->transform($object))
-        //            ->result();
+        $json = Json::fromPartial($partialJsonData)->toString();
+        return $pipeline->executeWith(ProcessingState::with($json))->result();
     }
 
     protected function getChangedOnly(Result $result) : ?Result {

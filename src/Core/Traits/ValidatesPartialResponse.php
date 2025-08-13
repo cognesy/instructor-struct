@@ -3,6 +3,8 @@
 namespace Cognesy\Instructor\Core\Traits;
 
 use Cognesy\Instructor\Data\ResponseModel;
+use Cognesy\Pipeline\Contracts\CanCarryState;
+use Cognesy\Pipeline\Enums\ErrorStrategy;
 use Cognesy\Pipeline\Pipeline;
 use Cognesy\Pipeline\ProcessingState;
 use Cognesy\Utils\Arrays;
@@ -19,28 +21,18 @@ trait ValidatesPartialResponse
         bool $preventJsonSchema,
         bool $matchToExpectedFields
     ) : Result {
-        $pipeline = Pipeline::builder()
+        $pipeline = Pipeline::builder(ErrorStrategy::FailFast)
             ->through(fn(string $text) => $this->preventJsonSchemaResponse($preventJsonSchema, $text))
             ->through(fn(string $text) => $this->detectNonMatchingJson($matchToExpectedFields, $text, $responseModel))
-            ->onFailure(fn(ProcessingState $state) => throw new JsonParsingException(
+            ->onFailure(fn(CanCarryState $state) => throw new JsonParsingException(
                 message: $state->result()->errorMessage(),
                 json: $partialResponseText,
             ))
-            //            ->onFailure(fn($s) => dd($s))
             ->create();
 
         return $pipeline
-            ->executeWith($partialResponseText)
+            ->executeWith(ProcessingState::with($partialResponseText))
             ->result();
-
-        //        return ResultChain::make()
-        //            ->through(fn() => $this->preventJsonSchemaResponse($preventJsonSchema, $partialResponseText))
-        //            ->through(fn() => $this->detectNonMatchingJson($matchToExpectedFields, $partialResponseText, $responseModel))
-        //            ->onFailure(fn($result) => throw new JsonParsingException(
-        //                message: $result->errorMessage(),
-        //                json: $partialResponseText,
-        //            ))
-        //            ->result();
     }
 
     // INTERNAL ////////////////////////////////////////////////////////
