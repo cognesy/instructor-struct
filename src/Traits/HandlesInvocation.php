@@ -1,6 +1,7 @@
 <?php declare(strict_types=1);
 namespace Cognesy\Instructor\Traits;
 
+use Cognesy\Http\HttpClientBuilder;
 use Cognesy\Instructor\Data\StructuredOutputRequest;
 use Cognesy\Instructor\Deserialization\Deserializers\SymfonyDeserializer;
 use Cognesy\Instructor\Deserialization\ResponseDeserializer;
@@ -9,9 +10,9 @@ use Cognesy\Instructor\PendingStructuredOutput;
 use Cognesy\Instructor\Transformation\ResponseTransformer;
 use Cognesy\Instructor\Validation\ResponseValidator;
 use Cognesy\Instructor\Validation\Validators\SymfonyValidator;
-use Cognesy\Polyglot\Inference\Enums\OutputMode;
 use Cognesy\Messages\Message;
 use Cognesy\Messages\Messages;
+use Cognesy\Polyglot\Inference\Enums\OutputMode;
 use Exception;
 
 /**
@@ -124,7 +125,7 @@ trait HandlesInvocation
         if ($this->httpClient !== null) {
             $client = $this->httpClient;
         } else {
-            $builder = new \Cognesy\Http\HttpClientBuilder(events: $this->events);
+            $builder = new HttpClientBuilder(events: $this->events);
             if ($this->httpDebugPreset !== null) {
                 $builder = $builder->withDebugPreset($this->httpDebugPreset);
             }
