@@ -95,8 +95,9 @@ class ResponseModelFactory
         $schema = $this->schemaConverter->fromJsonSchema($requestedModel);
         $schemaName = $this->schemaName($requestedModel);
         $schemaDescription = $this->schemaDescription($requestedModel);
-        $schema->withName($schemaName);
-        $schema->withDescription($schemaDescription);
+        $schema = $schema
+            ->withName($schemaName)
+            ->withDescription($schemaDescription);
         $instance = match (true) {
             $class === Structure::class,
             is_subclass_of($class, Structure::class) => StructureFactory::fromSchema(
@@ -249,6 +250,7 @@ class ResponseModelFactory
             toolName: $this->config->toolName(),
             toolDescription: $this->config->toolDescription(),
             useObjectReferences: $this->config->useObjectReferences(),
+            config: $this->config,
         );
     }
 }

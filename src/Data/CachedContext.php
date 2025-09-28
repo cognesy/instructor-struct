@@ -3,16 +3,22 @@
 namespace Cognesy\Instructor\Data;
 
 use Cognesy\Instructor\Extras\Example\Example;
+use Cognesy\Instructor\Extras\Example\ExampleList;
 use Cognesy\Messages\Messages;
 
-class CachedContext
+final readonly class CachedContext
 {
     private Messages $messages;
     private string $system;
     private string $prompt;
-    /** @var Example[] */
-    private array $examples;
+    private ExampleList $examples;
 
+    /**
+     * @param string|array $messages
+     * @param string $system
+     * @param string $prompt
+     * @param Example[] $examples
+     */
     public function __construct(
         string|array $messages = [],
         string $system = '',
@@ -25,8 +31,10 @@ class CachedContext
         };
         $this->system = $system;
         $this->prompt = $prompt;
-        $this->examples = $examples;
+        $this->examples = new ExampleList(...$examples);
     }
+
+    // ACCESSORS ///////////////////////////////////////////////////////////////////////
 
     public function messages() : Messages {
         return $this->messages;
@@ -41,23 +49,25 @@ class CachedContext
     }
 
     public function examples() : array {
-        return $this->examples;
-    }
-
-    public function toArray() : array {
-        return [
-            'messages' => $this->messages,
-            'system' => $this->system,
-            'prompt' => $this->prompt,
-            'examples' => $this->examples,
-        ];
+        return $this->examples->all();
     }
 
     public function isEmpty() : bool {
         return $this->messages->isEmpty()
             && empty($this->system)
             && empty($this->prompt)
-            && empty($this->examples);
+            && empty($this->examples->isEmpty());
+    }
+
+    // SERIALIZATION ///////////////////////////////////////////////////////////////////
+
+    public function toArray() : array {
+        return [
+            'messages' => $this->messages,
+            'system' => $this->system,
+            'prompt' => $this->prompt,
+            'examples' => $this->examples->toArray(),
+        ];
     }
 
     public static function fromArray(array $data) : static {
@@ -70,15 +80,6 @@ class CachedContext
             system: $data['system'] ?? '',
             prompt: $data['prompt'] ?? '',
             examples: $data['examples'] ?? [],
-        );
-    }
-
-    public function clone() : self {
-        return new self(
-            messages: $this->messages->toArray(),
-            system: $this->system,
-            prompt: $this->prompt,
-            examples: array_map(fn(Example $example) => $example->toArray(), $this->examples),
         );
     }
 }
