@@ -8,6 +8,7 @@ use Symfony\Component\Validator\Validation;
 
 class SymfonyValidator implements CanValidateObject
 {
+    #[\Override]
     public function validate(object $dataObject) : ValidationResult {
         $validator = Validation::createValidatorBuilder()
             ->enableAttributeMapping()
@@ -20,7 +21,8 @@ class SymfonyValidator implements CanValidateObject
             $path = $error->getPropertyPath();
             $value = $error->getInvalidValue();
             $message = $error->getMessage();
-            $errors[] = new ValidationError($path, $value, $message);
+            /** @phpstan-ignore-next-line */
+            $errors[] = new ValidationError((string) $path, $value, (string) $message);
         }
 
         return ValidationResult::make($errors, 'Validation failed');
