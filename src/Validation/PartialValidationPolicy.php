@@ -1,7 +1,8 @@
 <?php declare(strict_types=1);
 
-namespace Cognesy\Instructor\Core\Traits;
+namespace Cognesy\Instructor\Validation;
 
+use Cognesy\Instructor\Config\PartialsGeneratorConfig;
 use Cognesy\Instructor\Data\ResponseModel;
 use Cognesy\Pipeline\Enums\ErrorStrategy;
 use Cognesy\Pipeline\Pipeline;
@@ -13,19 +14,22 @@ use Cognesy\Utils\Json\JsonParsingException;
 use Cognesy\Utils\Result\Result;
 use Exception;
 
-trait ValidatesPartialResponse
+/**
+ * Validates partial response text during streaming according to early policies:
+ * - prevent JSON Schema-shaped responses when strict JSON object data is expected
+ * - ensure keys match expected ResponseModel (subset check, tolerant for partials)
+ */
+class PartialValidationPolicy
 {
     public function validatePartialResponse(
         string $partialResponseText,
         ResponseModel $responseModel,
-        bool $preventJsonSchema,
-        bool $matchToExpectedFields
+        PartialsGeneratorConfig $config,
     ) : Result {
         return $this->makePartialValidationPipeline(
                 $partialResponseText,
                 $responseModel,
-                $preventJsonSchema,
-                $matchToExpectedFields
+                $config,
             )
             ->executeWith(ProcessingState::with($partialResponseText))
             ->result();
@@ -33,15 +37,14 @@ trait ValidatesPartialResponse
 
     // INTERNAL ////////////////////////////////////////////////////////
 
-    public function makePartialValidationPipeline(
+    private function makePartialValidationPipeline(
         string $partialResponseText,
         ResponseModel $responseModel,
-        bool $preventJsonSchema,
-        bool $matchToExpectedFields
+        PartialsGeneratorConfig $config,
     ) : Pipeline {
         return Pipeline::builder(ErrorStrategy::FailFast)
-            ->through(fn(string $text) => $this->preventJsonSchemaResponse($preventJsonSchema, $text))
-            ->through(fn(string $text) => $this->detectNonMatchingJson($matchToExpectedFields, $text, $responseModel))
+            ->through(fn(string $text) => $this->preventJsonSchemaResponse($config->preventJsonSchema, $text))
+            ->through(fn(string $text) => $this->detectNonMatchingJson($config->matchToExpectedFields, $text, $responseModel))
             ->onFailure(fn(CanCarryState $state) => throw new JsonParsingException(
                 message: (string) $state->result()->error(),
                 json: $partialResponseText,
@@ -65,7 +68,7 @@ trait ValidatesPartialResponse
     private function isJsonSchemaResponse(string $responseText) : bool {
         try {
             $decoded = Json::fromPartial($responseText)->toArray();
-        } catch (Exception $e) {
+        } catch (Exception $_) {
             // also covers no JSON at all - which is fine, as some models will respond with text
             return false;
         }
@@ -89,21 +92,17 @@ trait ValidatesPartialResponse
         string $partialResponseText,
         ResponseModel $responseModel
     ) : bool {
-        // ...check for response model property names
         $propertyNames = $responseModel->getPropertyNames();
         if (empty($propertyNames)) {
             return true;
         }
-        // ...detect matching response model
         try {
             $decoded = Json::fromPartial($partialResponseText)->toArray();
-            // we can try removing last item as it is likely to be still incomplete
+            // remove last item as it is likely to be incomplete in streaming
             $decoded = Arrays::removeTail($decoded, 1);
-        } catch (Exception $e) {
+        } catch (Exception $_) {
             return false;
         }
-        // Question: how to make this work while we're getting partially
-        // retrieved field names
         $decodedKeys = array_filter(array_keys($decoded));
         if (empty($decodedKeys)) {
             return true;

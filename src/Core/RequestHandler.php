@@ -12,11 +12,11 @@ use Cognesy\Instructor\Events\Request\NewValidationRecoveryAttempt;
 use Cognesy\Instructor\Events\Request\StructuredOutputRecoveryLimitReached;
 use Cognesy\Instructor\Exceptions\StructuredOutputRecoveryException;
 use Cognesy\Polyglot\Inference\Collections\PartialInferenceResponseList;
+use Cognesy\Polyglot\Inference\Creation\InferenceResponseFactory;
 use Cognesy\Polyglot\Inference\Data\InferenceResponse;
 use Cognesy\Polyglot\Inference\Data\PartialInferenceResponse;
 use Cognesy\Polyglot\Inference\Enums\OutputMode;
 use Cognesy\Polyglot\Inference\Inference;
-use Cognesy\Polyglot\Inference\InferenceResponseFactory;
 use Cognesy\Polyglot\Inference\LLMProvider;
 use Cognesy\Polyglot\Inference\PendingInference;
 use Cognesy\Utils\Json\Json;
@@ -24,6 +24,7 @@ use Cognesy\Utils\Result\Failure;
 use Cognesy\Utils\Result\Result;
 use Generator;
 
+/** @deprecated */
 class RequestHandler
 {
     protected readonly CanGenerateResponse $responseGenerator;
@@ -112,9 +113,8 @@ class RequestHandler
             $stream = $this->getInference($execution)->stream()->responses();
             $responseModel = $execution->responseModel();
             assert($responseModel !== null, 'Response model cannot be null');
-            $partialResponseStream = $this->partialsGenerator->getPartialResponses($stream, $responseModel);
 
-            $partialResponses = PartialInferenceResponseList::empty();
+            $partialResponseStream = $this->partialsGenerator->makePartialResponses($stream, $responseModel);
             /** @var PartialInferenceResponse $partialResponse */
             foreach ($partialResponseStream as $partialResponse) {
                 $partialResponses = $partialResponses->withNewPartialResponse($partialResponse);
@@ -129,15 +129,18 @@ class RequestHandler
             }
 
             // we're done streaming - get final response
-            $inferenceResponse = $this->partialsGenerator->getCompleteResponse();
-            $partialResponses = $this->partialsGenerator->partialResponses();
+            //$partialResponses = $this->partialsGenerator->partialResponses();
+            $inferenceResponse = InferenceResponseFactory::fromPartialResponses($partialResponses);
             $processingResult = $this->responseGenerator->makeResponse(
                 response: $inferenceResponse,
                 responseModel: $responseModel,
                 mode: $execution->outputMode(),
             );
+
+            // if processing failed, handle error and retry
             if ($processingResult->isFailure()) {
                 $execution = $this->handleError($processingResult, $execution, $inferenceResponse, $partialResponses);
+                $partialResponses = PartialInferenceResponseList::empty();
             }
         }
 
@@ -199,7 +202,6 @@ class RequestHandler
         PartialInferenceResponseList $partialResponses
     ): StructuredOutputExecution {
         assert($processingResult instanceof Failure);
-        $request = $execution->request();
         $error = $processingResult->error();
         $this->errors = is_array($error) ? $error : [$error];
         // store failed response
