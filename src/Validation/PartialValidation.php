@@ -19,7 +19,7 @@ use Exception;
  * - prevent JSON Schema-shaped responses when strict JSON object data is expected
  * - ensure keys match expected ResponseModel (subset check, tolerant for partials)
  */
-class PartialValidationPolicy
+class PartialValidation
 {
     public function validatePartialResponse(
         string $partialResponseText,

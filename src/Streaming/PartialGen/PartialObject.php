@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace Cognesy\Instructor\Streaming;
+namespace Cognesy\Instructor\Streaming\PartialGen;
 
 use Cognesy\Utils\Result\Result;
 

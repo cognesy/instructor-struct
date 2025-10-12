@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace Cognesy\Instructor\Streaming;
+namespace Cognesy\Instructor\Streaming\PartialGen;
 
 use Cognesy\Utils\Json\Json;
 
@@ -18,12 +18,6 @@ final class PartialJson
     }
 
     // MUTATORS ////////////////////////////////////////////////
-
-    public function appendChunk(string $delta): self {
-        $raw = $this->raw . $delta;
-        $normalized = Json::fromPartial($raw)->toString();
-        return new self($raw, $normalized);
-    }
 
     public function assemble(string $delta): self {
         if (trim($delta) === '') {
@@ -54,5 +48,13 @@ final class PartialJson
 
     public function finalized(): string {
         return Json::fromString($this->raw)->toString();
+    }
+
+    // INTERNAL ////////////////////////////////////////////////
+
+    private function appendChunk(string $delta): self {
+        $raw = $this->raw . $delta;
+        $normalized = Json::fromPartial($raw)->toString();
+        return new self($raw, $normalized);
     }
 }

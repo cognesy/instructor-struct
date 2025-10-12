@@ -1,25 +1,25 @@
 <?php declare(strict_types=1);
 
-namespace Cognesy\Instructor\Streaming;
+namespace Cognesy\Instructor\Streaming\PartialGen;
 
 use Cognesy\Instructor\Config\PartialsGeneratorConfig;
 use Cognesy\Instructor\Data\ResponseModel;
 use Cognesy\Instructor\Deserialization\ResponseDeserializer;
 use Cognesy\Instructor\Transformation\ResponseTransformer;
-use Cognesy\Instructor\Validation\PartialValidationPolicy;
+use Cognesy\Instructor\Validation\PartialValidation;
 use Cognesy\Utils\Result\Result;
 use Throwable;
 
-final class PartialObjectAssembler
+final class AssemblePartialObject
 {
-    private PartialValidationPolicy $validation;
+    private PartialValidation $validation;
 
     public function __construct(
         private ResponseDeserializer $deserializer,
         private ResponseTransformer $transformer,
         private PartialsGeneratorConfig $config,
     ) {
-        $this->validation = new PartialValidationPolicy();
+        $this->validation = new PartialValidation();
     }
 
     public function makeWith(
