@@ -2,7 +2,7 @@
 
 namespace Cognesy\Instructor;
 
-use Cognesy\Instructor\Contracts\CanExecuteStructuredOutput;
+use Cognesy\Instructor\Contracts\CanHandleStructuredOutputAttempts;
 use Cognesy\Instructor\Data\StructuredOutputExecution;
 use Cognesy\Instructor\Events\StructuredOutput\StructuredOutputResponseGenerated;
 use Cognesy\Instructor\Events\StructuredOutput\StructuredOutputResponseUpdated;
@@ -21,7 +21,7 @@ use RuntimeException;
  */
 class StructuredOutputStream
 {
-    private CanExecuteStructuredOutput $requestHandler;
+    private CanHandleStructuredOutputAttempts $attemptHandler;
     private EventDispatcherInterface $events;
 
     private Generator $stream;
@@ -38,13 +38,13 @@ class StructuredOutputStream
      */
     public function __construct(
         StructuredOutputExecution $execution,
-        CanExecuteStructuredOutput $requestHandler,
+        CanHandleStructuredOutputAttempts $attemptHandler,
         EventDispatcherInterface $events,
     ) {
         $this->cacheProcessedResponse = true;
 
         $this->execution = $execution;
-        $this->requestHandler = $requestHandler;
+        $this->attemptHandler = $attemptHandler;
         $this->events = $events;
         $this->stream = $this->getStream($execution);
     }
@@ -113,26 +113,30 @@ class StructuredOutputStream
      */
     public function sequence() : Generator {
         $lastSequence = null;
-        $lastSequenceCount = 1;
+        $lastCount = 0;
 
         foreach ($this->streamResponses() as $partialResponse) {
             $update = $partialResponse->value();
             if (!($update instanceof Sequence)) {
                 throw new Exception('Expected a sequence update, got ' . get_class($update));
             }
-            // only yield if there's new element in sequence
-            if ($update->count() > $lastSequenceCount) {
-                $lastSequenceCount = $update->count();
-                // yield snapshot of the previous state if available
-                if (!is_null($lastSequence)) {
+
+            $newCount = $update->count();
+            if ($newCount > $lastCount) {
+                // Yield intermediate snapshots for each completed item
+                $start = max(1, $lastCount);
+                for ($c = $start; $c < $newCount; $c++) {
+                    /** @var Sequence $snap */
+                    $snap = clone $update;
+                    $snap->list = array_slice($update->list, 0, $c);
                     /** @phpstan-ignore-next-line */
-                    yield clone $lastSequence;
+                    yield clone $snap;
                 }
+                $lastCount = $newCount;
             }
             // keep a snapshot to avoid later mutations affecting yielded values
             $lastSequence = clone $update;
         }
-        // yield last, fully updated sequence instance if available
         if (!is_null($lastSequence)) {
             /** @phpstan-ignore-next-line */
             yield clone $lastSequence;
@@ -179,7 +183,7 @@ class StructuredOutputStream
      */
     private function streamResponses(): Generator {
         /** @var StructuredOutputExecution $execution */
-        foreach ($this->stream as $execution) {
+        foreach ($this->getStream($this->execution) as $execution) {
             $response = $execution->inferenceResponse();
             if ($response === null) {
                 continue;
@@ -214,15 +218,11 @@ class StructuredOutputStream
      * @return Generator<StructuredOutputExecution>
      */
     private function streamWithoutCaching(StructuredOutputExecution $execution): Generator {
-        $executionUpdates = $this->requestHandler->nextUpdate($execution);
-        $last = null;
-        foreach ($executionUpdates as $chunk) {
-            $last = $chunk;
-            yield $chunk;
+        while ($this->attemptHandler->hasNext($execution)) {
+            $execution = $this->attemptHandler->nextUpdate($execution);
+            yield $execution;
         }
-        if ($last !== null) {
-            $this->execution = $last;
-        }
+        $this->execution = $execution;
     }
 
     /**
@@ -245,15 +245,11 @@ class StructuredOutputStream
      */
     private function buildAndCacheStream(StructuredOutputExecution $execution): Generator {
         $this->cachedResponseStream = [];
-        $executionUpdates = $this->requestHandler->nextUpdate($execution);
-        $last = null;
-        foreach ($executionUpdates as $chunk) {
-            $this->cachedResponseStream[] = $chunk;
-            $last = $chunk;
-            yield $chunk;
+        while ($this->attemptHandler->hasNext($execution)) {
+            $execution = $this->attemptHandler->nextUpdate($execution);
+            $this->cachedResponseStream[] = $execution;
+            yield $execution;
         }
-        if ($last !== null) {
-            $this->execution = $last;
-        }
+        $this->execution = $execution;
     }
 }

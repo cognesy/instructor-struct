@@ -4,21 +4,23 @@ namespace Cognesy\Instructor;
 
 use Cognesy\Events\Contracts\CanHandleEvents;
 use Cognesy\Http\HttpClient;
-use Cognesy\Instructor\Config\StructuredOutputConfig;
-use Cognesy\Instructor\Contracts\CanExecuteStructuredOutput;
+use Cognesy\Instructor\Contracts\CanDetermineRetry;
 use Cognesy\Instructor\Contracts\CanGenerateResponse;
+use Cognesy\Instructor\Contracts\CanHandleStructuredOutputAttempts;
+use Cognesy\Instructor\Contracts\CanStreamStructuredOutputUpdates;
+use Cognesy\Instructor\Core\AttemptIterator;
+use Cognesy\Instructor\Core\DefaultRetryPolicy;
 use Cognesy\Instructor\Core\InferenceProvider;
 use Cognesy\Instructor\Core\RequestMaterializer;
 use Cognesy\Instructor\Core\ResponseGenerator;
-use Cognesy\Instructor\Core\RetryHandler;
 use Cognesy\Instructor\Data\StructuredOutputExecution;
 use Cognesy\Instructor\Deserialization\Contracts\CanDeserializeResponse;
 use Cognesy\Instructor\Executors\Partials\PartialStreamFactory;
-use Cognesy\Instructor\Executors\Partials\PartialStreamingRequestHandler;
+use Cognesy\Instructor\Executors\Partials\PartialStreamingUpdateGenerator;
 use Cognesy\Instructor\Executors\Streaming\PartialGen\GeneratePartialsFromJson;
 use Cognesy\Instructor\Executors\Streaming\PartialGen\GeneratePartialsFromToolCalls;
-use Cognesy\Instructor\Executors\Streaming\StreamingRequestHandler;
-use Cognesy\Instructor\Executors\Sync\SyncRequestHandler;
+use Cognesy\Instructor\Executors\Streaming\StreamingUpdatesGenerator;
+use Cognesy\Instructor\Executors\Sync\SyncUpdateGenerator;
 use Cognesy\Instructor\Transformation\Contracts\CanTransformResponse;
 use Cognesy\Instructor\Validation\Contracts\CanValidatePartialResponse;
 use Cognesy\Instructor\Validation\Contracts\CanValidateResponse;
@@ -53,64 +55,53 @@ class ExecutorFactory
         $this->httpClient = $httpClient;
     }
 
-    public function makeExecutor(StructuredOutputExecution $execution) : CanExecuteStructuredOutput {
-        return match(true) {
-            $execution->isStreamed() => $this->makeStreamingHandler(
-                inferenceProvider: $this->makeInferenceProvider(),
-                processor: $this->makeResponseProcessor(),
-                retryHandler: $this->makeRetryHandler(),
-                config: $execution->config(),
-            ),
-            default => $this->makeSyncHandler(
-                inferenceProvider: $this->makeInferenceProvider(),
-                processor: $this->makeResponseProcessor(),
-                retryHandler: $this->makeRetryHandler(),
-            ),
+    public function makeExecutor(StructuredOutputExecution $execution) : CanHandleStructuredOutputAttempts {
+        $streamIterator = match(true) {
+            $execution->isStreamed() => $this->makeStreamingIterator($execution),
+            default => $this->makeSyncIterator(),
         };
+
+        return new AttemptIterator(
+            streamIterator: $streamIterator,
+            responseGenerator: $this->makeResponseProcessor(),
+            retryPolicy: $this->makeRetryPolicy(),
+        );
     }
 
     // INTERNAL /////////////////////////////////////////////////////////////////////
 
-    private function makeSyncHandler(
-        InferenceProvider $inferenceProvider,
-        CanGenerateResponse $processor,
-        RetryHandler $retryHandler,
-    ): CanExecuteStructuredOutput {
-        return new SyncRequestHandler(
-            inferenceProvider: $inferenceProvider,
-            processor: $processor,
-            retryHandler: $retryHandler,
+    private function makeSyncIterator(): CanStreamStructuredOutputUpdates {
+        return new SyncUpdateGenerator(
+            inferenceProvider: $this->makeInferenceProvider(),
         );
     }
 
-    private function makeStreamingHandler(
-        InferenceProvider $inferenceProvider,
-        CanGenerateResponse $processor,
-        RetryHandler $retryHandler,
-        StructuredOutputConfig $config,
-    ): CanExecuteStructuredOutput {
-        return match($config->streamingDriver) {
-            'partials' => $this->makeTransducerHandler(
-                inferenceProvider: $inferenceProvider,
-                processor: $processor,
-                retryHandler: $retryHandler,
-            ),
-            'generator' => $this->makeGeneratorHandler(
-                inferenceProvider: $inferenceProvider,
-                processor: $processor,
-                retryHandler: $retryHandler,
-                config: $config,
-            ),
+    private function makeStreamingIterator(StructuredOutputExecution $execution): CanStreamStructuredOutputUpdates {
+        $pipeline = $execution->config()->streamingDriver;
+
+        return match($pipeline) {
+            'partials' => $this->makePartialStreamingIterator(),
+            'legacy' => $this->makeLegacyStreamingIterator($execution),
+            default => $this->makePartialStreamingIterator(),
         };
     }
 
-    private function makeGeneratorHandler(
-        InferenceProvider $inferenceProvider,
-        CanGenerateResponse $processor,
-        RetryHandler $retryHandler,
-        StructuredOutputConfig $config,
-    ) : CanExecuteStructuredOutput {
-        $partialsGenerator = match($config->outputMode()) {
+    private function makePartialStreamingIterator(): CanStreamStructuredOutputUpdates {
+        $partialsFactory = new PartialStreamFactory(
+            deserializer: $this->responseDeserializer,
+            validator: $this->partialResponseValidator,
+            transformer: $this->responseTransformer,
+            events: $this->events,
+        );
+
+        return new PartialStreamingUpdateGenerator(
+            inferenceProvider: $this->makeInferenceProvider(),
+            partials: $partialsFactory,
+        );
+    }
+
+    private function makeLegacyStreamingIterator(StructuredOutputExecution $execution): CanStreamStructuredOutputUpdates {
+        $partialsGenerator = match($execution->outputMode()) {
             OutputMode::Tools => new GeneratePartialsFromToolCalls(
                 $this->responseDeserializer,
                 $this->partialResponseValidator,
@@ -124,33 +115,12 @@ class ExecutorFactory
                 $this->events,
             ),
         };
-        return new StreamingRequestHandler(
-            inferenceProvider: $inferenceProvider,
+
+        return new StreamingUpdatesGenerator(
+            inferenceProvider: $this->makeInferenceProvider(),
             partialsGenerator: $partialsGenerator,
-            processor: $processor,
-            retryHandler: $retryHandler,
         );
     }
-
-    private function makeTransducerHandler(
-        InferenceProvider $inferenceProvider,
-        CanGenerateResponse $processor,
-        RetryHandler $retryHandler,
-    ) : CanExecuteStructuredOutput {
-        $partialsFactory = new PartialStreamFactory(
-            deserializer: $this->responseDeserializer,
-            validator: $this->partialResponseValidator,
-            transformer: $this->responseTransformer,
-            events: $this->events,
-        );
-        return new PartialStreamingRequestHandler(
-            inferenceProvider: $inferenceProvider,
-            partials: $partialsFactory,
-            responseGenerator: $processor,
-            retryHandler: $retryHandler,
-        );
-    }
-
 
     private function makeInferenceProvider(): InferenceProvider {
         return new InferenceProvider(
@@ -161,8 +131,8 @@ class ExecutorFactory
         );
     }
 
-    private function makeRetryHandler(): RetryHandler {
-        return new RetryHandler(
+    private function makeRetryPolicy(): CanDetermineRetry {
+        return new DefaultRetryPolicy(
             events: $this->events,
         );
     }
