@@ -9,6 +9,7 @@ use Cognesy\Instructor\Data\StructuredOutputExecution;
 use Cognesy\Instructor\Enums\AttemptPhase;
 use Cognesy\Instructor\ResponseIterators\GeneratorBased\Contracts\CanGeneratePartials;
 use Cognesy\Polyglot\Inference\Creation\InferenceResponseFactory;
+use Cognesy\Polyglot\Inference\Data\InferenceResponse;
 use Cognesy\Polyglot\Inference\Data\PartialInferenceResponse;
 
 /**
@@ -73,10 +74,12 @@ final readonly class StreamingUpdatesGenerator implements CanStreamStructuredOut
             ->responses();
 
         // Wrap with partials generator
+        /** @var \Generator<\Cognesy\Polyglot\Inference\Data\PartialInferenceResponse> $partialStream */
         $partialStream = $this->partialsGenerator->makePartialResponses(
             $inferenceStream,
             $responseModel
         );
+        //$iterator = fn() => yield from $partialStream;
 
         // Create streaming state with initialized stream
         $attemptState = StructuredOutputAttemptState::empty()
@@ -111,23 +114,22 @@ final readonly class StreamingUpdatesGenerator implements CanStreamStructuredOut
         // Check if stream is exhausted AFTER advancing (on same iterator instance)
         $isExhausted = !$stream->valid();
 
-        // Accumulate partials
-        $accumulatedPartials = $state->accumulatedPartials()
-            ->withNewPartialResponse($partial);
+        // Accumulate partials locally for Instructor state
+        $accumulatedPartial = $state->accumulatedPartial()->withAccumulatedContent($partial);
 
         // Build aggregate inference from all partials so far
-        $inference = InferenceResponseFactory::fromPartialResponses($accumulatedPartials)
+        $inference = InferenceResponse::fromAccumulatedPartial($accumulatedPartial)
             ->withValue($partial->value());
 
         // Update streaming state with processed chunk
-        $newState = $state->withNextChunk($inference, $accumulatedPartials, $isExhausted);
+        $newState = $state->withNextChunk($inference, $accumulatedPartial, $isExhausted);
 
         // Update execution with current attempt data
         return $execution
             ->withAttemptState($newState)
             ->withCurrentAttempt(
                 inferenceResponse: $inference,
-                partialInferenceResponses: $accumulatedPartials,
+                partialInferenceResponse: $accumulatedPartial,
                 errors: $execution->currentErrors(), // Preserve existing errors
             );
     }

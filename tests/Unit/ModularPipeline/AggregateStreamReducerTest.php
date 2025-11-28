@@ -90,7 +90,7 @@ test('captures finish reason', function() {
 
     $result = $reducer->step($aggregate, $partial);
 
-    expect($result->finishReason)->toBe('stop');
+    expect($result->finishReason())->toBe('stop');
 });
 
 test('accumulates partials when enabled', function() {
@@ -98,14 +98,15 @@ test('accumulates partials when enabled', function() {
 
     $aggregate = $reducer->init();
 
-    $partial1 = new PartialInferenceResponse(usage: Usage::none());
-    $partial2 = new PartialInferenceResponse(usage: Usage::none());
+    $partial1 = new PartialInferenceResponse(contentDelta: 'hello', usage: Usage::none());
+    $partial2 = new PartialInferenceResponse(contentDelta: ' world', usage: Usage::none());
 
     $aggregate = $reducer->step($aggregate, $partial1);
     $aggregate = $reducer->step($aggregate, $partial2);
 
-    expect($aggregate->partials)->not()->toBeNull()
-        ->and($aggregate->partials->count())->toBe(2);
+    expect($aggregate->partial)->not()->toBeNull()
+        ->and($aggregate->partial->content())->toBe('hello world')
+        ->and($aggregate->frameCount)->toBe(2);
 });
 
 test('does not accumulate partials when disabled', function() {
@@ -117,7 +118,7 @@ test('does not accumulate partials when disabled', function() {
 
     $result = $reducer->step($aggregate, $partial);
 
-    expect($result->partials)->toBeNull();
+    expect($result->partial)->toBeNull();
 });
 
 test('adds all partials to collection when enabled', function() {
@@ -133,7 +134,8 @@ test('adds all partials to collection when enabled', function() {
     $aggregate = $reducer->step($aggregate, $partial2);
     $aggregate = $reducer->step($aggregate, $partial3);
 
-    expect($aggregate->partials->count())->toBe(3);
+    expect($aggregate->frameCount)->toBe(3)
+        ->and($aggregate->partial)->not()->toBeNull();
 });
 
 test('complete returns final aggregate', function() {
@@ -196,5 +198,5 @@ test('preserves last non-null finish reason', function() {
     $aggregate = $reducer->step($aggregate, $partial2);
     $aggregate = $reducer->step($aggregate, $partial3);
 
-    expect($aggregate->finishReason)->toBe('stop');
+    expect($aggregate->finishReason())->toBe('stop');
 });
