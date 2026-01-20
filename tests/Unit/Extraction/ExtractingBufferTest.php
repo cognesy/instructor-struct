@@ -4,29 +4,30 @@ declare(strict_types=1);
 
 namespace Cognesy\Instructor\Tests\Unit\Extraction;
 
-use Cognesy\Instructor\Extraction\Buffers\ExtractingJsonBuffer;
+use Cognesy\Instructor\Extraction\Buffers\ExtractingBuffer;
 use Cognesy\Instructor\Extraction\Extractors\DirectJsonExtractor;
 use Cognesy\Instructor\Extraction\Extractors\ResilientJsonExtractor;
+use Cognesy\Polyglot\Inference\Enums\OutputMode;
 
-describe('ExtractingJsonBuffer', function () {
+describe('ExtractingBuffer', function () {
     it('creates empty buffer with default extractors', function () {
-        $buffer = ExtractingJsonBuffer::empty();
+        $buffer = ExtractingBuffer::empty(OutputMode::Json);
 
         expect($buffer->raw())->toBe('');
         expect($buffer->normalized())->toBe('');
         expect($buffer->isEmpty())->toBeTrue();
-        expect($buffer->extractors())->toHaveCount(2);
+        expect($buffer->extractors())->toHaveCount(3);
     });
 
     it('creates buffer with custom extractors', function () {
-        $buffer = ExtractingJsonBuffer::withExtractors(new DirectJsonExtractor());
+        $buffer = ExtractingBuffer::withExtractors(OutputMode::Json, new DirectJsonExtractor());
 
         expect($buffer->extractors())->toHaveCount(1);
         expect($buffer->extractors()[0])->toBeInstanceOf(DirectJsonExtractor::class);
     });
 
     it('assembles deltas into raw content', function () {
-        $buffer = ExtractingJsonBuffer::empty();
+        $buffer = ExtractingBuffer::empty(OutputMode::Json);
 
         $buffer = $buffer->assemble('{"na');
         expect($buffer->raw())->toBe('{"na');
@@ -39,7 +40,7 @@ describe('ExtractingJsonBuffer', function () {
     });
 
     it('normalizes complete JSON using strategy', function () {
-        $buffer = ExtractingJsonBuffer::empty();
+        $buffer = ExtractingBuffer::empty(OutputMode::Json);
 
         $buffer = $buffer->assemble('{"name":"John"}');
 
@@ -47,7 +48,7 @@ describe('ExtractingJsonBuffer', function () {
     });
 
     it('normalizes incomplete JSON using partial parser fallback', function () {
-        $buffer = ExtractingJsonBuffer::empty();
+        $buffer = ExtractingBuffer::empty(OutputMode::Json);
 
         $buffer = $buffer->assemble('{"name":"Jo');
 
@@ -56,7 +57,7 @@ describe('ExtractingJsonBuffer', function () {
     });
 
     it('skips empty deltas', function () {
-        $buffer = ExtractingJsonBuffer::empty();
+        $buffer = ExtractingBuffer::empty(OutputMode::Json);
 
         $buffer = $buffer->assemble('{"name":"John"}');
         $original = $buffer->raw();
@@ -69,7 +70,7 @@ describe('ExtractingJsonBuffer', function () {
     });
 
     it('skips normalization until structural characters present', function () {
-        $buffer = ExtractingJsonBuffer::empty();
+        $buffer = ExtractingBuffer::empty(OutputMode::Json);
 
         $buffer = $buffer->assemble('Hello');
         expect($buffer->normalized())->toBe('');
@@ -80,7 +81,7 @@ describe('ExtractingJsonBuffer', function () {
     });
 
     it('handles JSON with trailing comma via resilient extractor', function () {
-        $buffer = ExtractingJsonBuffer::empty([
+        $buffer = ExtractingBuffer::empty(OutputMode::Json, [
             new DirectJsonExtractor(),
             new ResilientJsonExtractor(),
         ]);
@@ -93,7 +94,7 @@ describe('ExtractingJsonBuffer', function () {
     });
 
     it('returns immutable instances', function () {
-        $buffer = ExtractingJsonBuffer::empty();
+        $buffer = ExtractingBuffer::empty(OutputMode::Json);
         $buffer2 = $buffer->assemble('{"test":true}');
 
         expect($buffer)->not->toBe($buffer2);
@@ -102,16 +103,16 @@ describe('ExtractingJsonBuffer', function () {
     });
 
     it('equals compares normalized content', function () {
-        $buffer1 = ExtractingJsonBuffer::empty()->assemble('{"a":1}');
-        $buffer2 = ExtractingJsonBuffer::empty()->assemble('{"a":1}');
-        $buffer3 = ExtractingJsonBuffer::empty()->assemble('{"b":2}');
+        $buffer1 = ExtractingBuffer::empty(OutputMode::Json)->assemble('{"a":1}');
+        $buffer2 = ExtractingBuffer::empty(OutputMode::Json)->assemble('{"a":1}');
+        $buffer3 = ExtractingBuffer::empty(OutputMode::Json)->assemble('{"b":2}');
 
         expect($buffer1->equals($buffer2))->toBeTrue();
         expect($buffer1->equals($buffer3))->toBeFalse();
     });
 
     it('handles streaming chunks progressively', function () {
-        $buffer = ExtractingJsonBuffer::empty();
+        $buffer = ExtractingBuffer::empty(OutputMode::Json);
 
         // Simulate streaming chunks
         $chunks = ['{"us', 'er":', '{"na', 'me":', '"John', '"}}'];
@@ -125,17 +126,17 @@ describe('ExtractingJsonBuffer', function () {
     });
 
     it('uses default extractors when null passed', function () {
-        $buffer = ExtractingJsonBuffer::empty(null);
+        $buffer = ExtractingBuffer::empty(OutputMode::Json, null);
 
-        $defaultExtractors = ExtractingJsonBuffer::defaultExtractors();
+        $defaultExtractors = ExtractingBuffer::defaultExtractors();
         expect(count($buffer->extractors()))->toBe(count($defaultExtractors));
     });
 
     it('provides default extractors optimized for streaming', function () {
-        $extractors = ExtractingJsonBuffer::defaultExtractors();
+        $extractors = ExtractingBuffer::defaultExtractors();
 
-        // Should have Direct and Resilient for streaming
-        expect($extractors)->toHaveCount(2);
+        // Should have Direct, Resilient, and Partial for streaming
+        expect($extractors)->toHaveCount(3);
         expect($extractors[0])->toBeInstanceOf(DirectJsonExtractor::class);
         expect($extractors[1])->toBeInstanceOf(ResilientJsonExtractor::class);
     });
