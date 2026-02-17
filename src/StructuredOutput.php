@@ -9,9 +9,8 @@ use Cognesy\Events\Traits\HandlesEvents;
 use Cognesy\Http\Creation\HttpClientBuilder;
 use Cognesy\Http\HttpClient;
 use Cognesy\Instructor\Config\StructuredOutputConfig;
+use Cognesy\Instructor\Contracts\CanCreateStructuredOutput;
 use Cognesy\Instructor\Creation\StructuredOutputConfigBuilder;
-use Cognesy\Instructor\Creation\StructuredOutputExecutionBuilder;
-use Cognesy\Instructor\Creation\StructuredOutputPipelineFactory;
 use Cognesy\Instructor\Data\OutputFormat;
 use Cognesy\Instructor\Data\CachedContext;
 use Cognesy\Instructor\Data\StructuredOutputRequest;
@@ -19,40 +18,47 @@ use Cognesy\Instructor\Deserialization\Contracts\CanDeserializeClass;
 use Cognesy\Instructor\Deserialization\Contracts\CanDeserializeSelf;
 use Cognesy\Instructor\Events\PartialsGenerator\PartialResponseGenerated;
 use Cognesy\Instructor\Events\Request\SequenceUpdated;
-use Cognesy\Instructor\Events\StructuredOutput\StructuredOutputRequestReceived;
 use Cognesy\Instructor\Extraction\Contracts\CanExtractResponse;
 use Cognesy\Instructor\Transformation\Contracts\CanTransformData;
 use Cognesy\Instructor\Validation\Contracts\CanValidateObject;
 use Cognesy\Messages\Message;
 use Cognesy\Messages\Messages;
-use Cognesy\Polyglot\Inference\Config\LLMConfig;
-use Cognesy\Polyglot\Inference\Contracts\CanHandleInference;
+use Cognesy\Polyglot\Inference\Contracts\CanAcceptLLMConfig;
+use Cognesy\Polyglot\Inference\Contracts\CanCreateInference;
+use Cognesy\Polyglot\Inference\Contracts\CanProcessInferenceRequest;
+use Cognesy\Polyglot\Inference\Contracts\CanResolveLLMConfig;
+use Cognesy\Polyglot\Inference\Contracts\HasExplicitInferenceDriver;
+use Cognesy\Polyglot\Inference\Creation\InferenceDriverFactory;
 use Cognesy\Polyglot\Inference\Data\InferenceResponse;
+use Cognesy\Polyglot\Inference\Config\LLMConfig;
 use Cognesy\Polyglot\Inference\Enums\OutputMode;
 use Cognesy\Polyglot\Inference\Enums\ResponseCachePolicy;
+use Cognesy\Polyglot\Inference\InferenceRuntime;
 use Cognesy\Polyglot\Inference\LLMProvider;
+use Cognesy\Polyglot\Inference\Pricing\StaticPricingResolver;
+use Cognesy\Polyglot\Inference\Traits\HandlesLLMProvider;
 use Cognesy\Utils\JsonSchema\Contracts\CanProvideJsonSchema;
+use Psr\EventDispatcher\EventDispatcherInterface;
 
 /**
  * The StructuredOutput is facade for handling structured output requests and responses.
  *
  * @template TResponse
  */
-class StructuredOutput
+class StructuredOutput implements CanAcceptLLMConfig, CanCreateStructuredOutput
 {
     use HandlesEvents;
+    use HandlesLLMProvider;
 
-    // From traits - builder instances
-    private ?LLMProvider $llmProvider = null;
-    protected StructuredOutputExecutionBuilder $executionBuilder;
+    // Builder instances
     private StructuredOutputRequest $request;
     private StructuredOutputConfigBuilder $configBuilder;
 
-    // From traits - callback handlers
-    /** @var callable(object): void|null */
-    protected $onPartialResponse = null;
-    /** @var callable(object): void|null */
-    protected $onSequenceUpdate = null;
+    // Callback handlers
+    /** @var array<callable(object): void> */
+    protected array $onPartialResponse = [];
+    /** @var array<callable(object): void> */
+    protected array $onSequenceUpdate = [];
 
     // Local properties
     /** @var HttpClient|null Facade-level HTTP client (optional) */
@@ -66,122 +72,76 @@ class StructuredOutput
     protected ?CanExtractResponse $extractor = null;
     /** @var array<CanExtractResponse|class-string<CanExtractResponse>> */
     protected array $extractors = [];
+    private ?InferenceDriverFactory $inferenceFactory = null;
+    private ?int $inferenceFactoryEventBusId = null;
+    private ?StructuredOutputRuntime $runtimeCache = null;
+    private bool $runtimeCacheDirty = true;
 
     // CONSTRUCTORS ///////////////////////////////////////////////////////////
 
     public function __construct(
-        ?CanHandleEvents  $events = null,
+        null|CanHandleEvents|EventDispatcherInterface $events = null,
         ?CanProvideConfig $configProvider = null,
     ) {
         $this->events = EventBusResolver::using($events);
         $this->configBuilder = new StructuredOutputConfigBuilder(configProvider: $configProvider);
         $this->request = new StructuredOutputRequest();
-        $this->executionBuilder = new StructuredOutputExecutionBuilder($this->events);
         $this->llmProvider = LLMProvider::new(
-            events: $this->events,
             configProvider: $configProvider,
         );
     }
 
-    // LLM PROVIDER METHODS (from HandlesLLMProvider) /////////////////////////
-
-    public function withDsn(string $dsn): static {
-        $this->llmProvider->withDsn($dsn);
-        return $this;
+    private function cloneWithConfigBuilder(): static {
+        $copy = clone $this;
+        $copy->configBuilder = clone $this->configBuilder;
+        return $copy;
     }
 
-    public function using(string $preset): static {
-        $this->llmProvider->withLLMPreset($preset);
-        return $this;
+    public function withEventHandler(CanHandleEvents|EventDispatcherInterface $events): static {
+        $copy = clone $this;
+        $copy->events = EventBusResolver::using($events);
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
-    public function withLLMProvider(LLMProvider $llm): static {
-        $this->llmProvider = $llm;
-        return $this;
-    }
-
-    public function withLLMConfig(LLMConfig $config): static {
-        $this->llmProvider->withConfig($config);
-        return $this;
-    }
-
-    public function withLLMConfigOverrides(array $overrides): static {
-        $this->llmProvider->withConfigOverrides($overrides);
-        return $this;
-    }
-
-    public function withDriver(CanHandleInference $driver): static {
-        $this->llmProvider->withDriver($driver);
-        return $this;
-    }
-
-    public function withHttpClient(HttpClient $httpClient): static {
-        $this->httpClient = $httpClient;
-        return $this;
-    }
-
-    public function withHttpClientPreset(string $preset): static {
-        $builder = new HttpClientBuilder(events: $this->events);
-        $this->httpClient = $builder->withPreset($preset)->create();
-        return $this;
-    }
-
-    /**
-     * Set HTTP debug preset explicitly (clearer than withDebugPreset()).
-     */
-    public function withHttpDebugPreset(?string $preset): static {
-        $this->httpDebugPreset = $preset;
-        return $this;
-    }
-
-    /**
-     * Convenience toggle for HTTP debugging.
-     */
-    public function withHttpDebug(bool $enabled = true): static {
-        $preset = match ($enabled) {
-            true => 'on',
-            false => 'off',
-        };
-        return $this->withHttpDebugPreset($preset);
-    }
-
-    /**
-     * Backward-compatible alias for HTTP debug presets.
-     */
-    public function withDebugPreset(string $preset): static {
-        return $this->withHttpDebugPreset($preset);
-    }
+    // LLM PROVIDER OVERRIDES /////////////////////////////////////////////////
 
     public function withClientInstance(string $driverName, object $clientInstance): static {
-        $builder = new HttpClientBuilder(events: $this->events);
-        $this->httpClient = $builder->withClientInstance(
+        $copy = clone $this;
+        $builder = new HttpClientBuilder(events: $copy->events);
+        $copy->httpClient = $builder->withClientInstance(
             driverName: $driverName,
             clientInstance: $clientInstance,
         )->create();
-        return $this;
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
     // REQUEST BUILDER METHODS (from HandlesRequestBuilder) ///////////////////
 
     public function withMessages(string|array|Message|Messages $messages): static {
-        $this->request = $this->request->withMessages($messages);
-        return $this;
+        $copy = clone $this;
+        $copy->request = $copy->request->withMessages($messages);
+        return $copy;
     }
 
     public function withInput(mixed $input): static {
+        $copy = clone $this;
         $messages = Messages::fromInput($input);
-        $this->request = $this->request->withMessages($messages);
-        return $this;
+        $copy->request = $copy->request->withMessages($messages);
+        return $copy;
     }
 
     public function withResponseModel(string|array|object $responseModel): static {
-        $this->request = $this->request->withRequestedSchema($responseModel);
-        return $this;
+        $copy = clone $this;
+        $copy->request = $copy->request->withRequestedSchema($responseModel);
+        return $copy;
     }
 
     public function withResponseJsonSchema(array|CanProvideJsonSchema $jsonSchema): static {
-        $this->request = $this->request->withRequestedSchema($jsonSchema);
-        return $this;
+        $copy = clone $this;
+        $copy->request = $copy->request->withRequestedSchema($jsonSchema);
+        return $copy;
     }
 
     /**
@@ -189,8 +149,9 @@ class StructuredOutput
      * @return StructuredOutput<TResponse>
      */
     public function withResponseClass(string $class): StructuredOutput {
-        $this->request = $this->request->withRequestedSchema($class);
-        return $this;
+        $copy = clone $this;
+        $copy->request = $copy->request->withRequestedSchema($class);
+        return $copy;
     }
 
     /**
@@ -198,43 +159,51 @@ class StructuredOutput
      * @return StructuredOutput<TResponse>
      */
     public function withResponseObject(object $responseObject): StructuredOutput {
-        $this->request = $this->request->withRequestedSchema($responseObject);
-        return $this;
+        $copy = clone $this;
+        $copy->request = $copy->request->withRequestedSchema($responseObject);
+        return $copy;
     }
 
     public function withSystem(string $system): static {
-        $this->request = $this->request->withSystem($system);
-        return $this;
+        $copy = clone $this;
+        $copy->request = $copy->request->withSystem($system);
+        return $copy;
     }
 
     public function withPrompt(string $prompt): static {
-        $this->request = $this->request->withPrompt($prompt);
-        return $this;
+        $copy = clone $this;
+        $copy->request = $copy->request->withPrompt($prompt);
+        return $copy;
     }
 
     public function withExamples(array $examples): static {
-        $this->request = $this->request->withExamples($examples);
-        return $this;
+        $copy = clone $this;
+        $copy->request = $copy->request->withExamples($examples);
+        return $copy;
     }
 
     public function withModel(string $model): static {
-        $this->request = $this->request->withModel($model);
-        return $this;
+        $copy = clone $this;
+        $copy->request = $copy->request->withModel($model);
+        return $copy;
     }
 
     public function withOptions(array $options): static {
-        $this->request = $this->request->withOptions($options);
-        return $this;
+        $copy = clone $this;
+        $copy->request = $copy->request->withOptions($options);
+        return $copy;
     }
 
     public function withOption(string $key, mixed $value): static {
-        $this->request = $this->request->withOptions([$key => $value]);
-        return $this;
+        $copy = clone $this;
+        $copy->request = $copy->request->withOptions([$key => $value]);
+        return $copy;
     }
 
     public function withStreaming(bool $stream = true): static {
-        $this->request = $this->request->withStreamed($stream);
-        return $this;
+        $copy = clone $this;
+        $copy->request = $copy->request->withStreamed($stream);
+        return $copy;
     }
 
     public function withCachedContext(
@@ -243,10 +212,11 @@ class StructuredOutput
         string $prompt = '',
         array $examples = [],
     ): static {
-        $this->request = $this->request->withCachedContext(
+        $copy = clone $this;
+        $copy->request = $copy->request->withCachedContext(
             new CachedContext($messages, $system, $prompt, $examples)
         );
-        return $this;
+        return $copy;
     }
 
     // OUTPUT FORMAT METHODS (from HandlesRequestBuilder) /////////////////////
@@ -255,8 +225,9 @@ class StructuredOutput
      * Return extracted data as raw associative array (skip object deserialization).
      */
     public function intoArray(): static {
-        $this->request = $this->request->withOutputFormat(OutputFormat::array());
-        return $this;
+        $copy = clone $this;
+        $copy->request = $copy->request->withOutputFormat(OutputFormat::array());
+        return $copy;
     }
 
     /**
@@ -265,8 +236,9 @@ class StructuredOutput
      * @param class-string $class Target class for deserialization
      */
     public function intoInstanceOf(string $class): static {
-        $this->request = $this->request->withOutputFormat(OutputFormat::instanceOf($class));
-        return $this;
+        $copy = clone $this;
+        $copy->request = $copy->request->withOutputFormat(OutputFormat::instanceOf($class));
+        return $copy;
     }
 
     /**
@@ -275,80 +247,109 @@ class StructuredOutput
      * @param CanDeserializeSelf $object Object implementing CanDeserializeSelf
      */
     public function intoObject(CanDeserializeSelf $object): static {
-        $this->request = $this->request->withOutputFormat(OutputFormat::selfDeserializing($object));
-        return $this;
+        $copy = clone $this;
+        $copy->request = $copy->request->withOutputFormat(OutputFormat::selfDeserializing($object));
+        return $copy;
     }
 
     // CONFIG BUILDER METHODS (from HandlesConfigBuilder) /////////////////////
 
-    public function withMaxRetries(int $maxRetries): self {
-        $this->configBuilder->withMaxRetries($maxRetries);
-        return $this;
+    public function withMaxRetries(int $maxRetries): static {
+        $copy = $this->cloneWithConfigBuilder();
+        $copy->configBuilder->withMaxRetries($maxRetries);
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
     public function withOutputMode(OutputMode $outputMode): static {
-        $this->configBuilder->withOutputMode($outputMode);
-        return $this;
+        $copy = $this->cloneWithConfigBuilder();
+        $copy->configBuilder->withOutputMode($outputMode);
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
     public function withSchemaName(string $schemaName): static {
-        $this->configBuilder->withSchemaName($schemaName);
-        return $this;
+        $copy = $this->cloneWithConfigBuilder();
+        $copy->configBuilder->withSchemaName($schemaName);
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
     public function withToolName(string $toolName): static {
-        $this->configBuilder->withToolName($toolName);
-        return $this;
+        $copy = $this->cloneWithConfigBuilder();
+        $copy->configBuilder->withToolName($toolName);
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
     public function withToolDescription(string $toolDescription): static {
-        $this->configBuilder->withToolDescription($toolDescription);
-        return $this;
+        $copy = $this->cloneWithConfigBuilder();
+        $copy->configBuilder->withToolDescription($toolDescription);
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
     public function withRetryPrompt(string $retryPrompt): static {
-        $this->configBuilder->withRetryPrompt($retryPrompt);
-        return $this;
+        $copy = $this->cloneWithConfigBuilder();
+        $copy->configBuilder->withRetryPrompt($retryPrompt);
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
     public function withConfig(StructuredOutputConfig $config): static {
-        $this->configBuilder->withConfig($config);
-        return $this;
+        $copy = $this->cloneWithConfigBuilder();
+        $copy->configBuilder->withConfig($config);
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
     public function withConfigPreset(string $preset): static {
-        $this->configBuilder->withConfigPreset($preset);
-        return $this;
+        $copy = $this->cloneWithConfigBuilder();
+        $copy->configBuilder->withConfigPreset($preset);
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
     public function withConfigProvider(CanProvideConfig $configProvider): static {
-        $this->configBuilder->withConfigProvider($configProvider);
-        return $this;
+        $copy = $this->cloneWithConfigBuilder();
+        $copy->configBuilder->withConfigProvider($configProvider);
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
     public function withObjectReferences(bool $useObjectReferences): static {
-        $this->configBuilder->withUseObjectReferences($useObjectReferences);
-        return $this;
+        $copy = $this->cloneWithConfigBuilder();
+        $copy->configBuilder->withUseObjectReferences($useObjectReferences);
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
-    public function withDefaultToStdClass(bool $defaultToStdClass = true): self {
-        $this->configBuilder->withDefaultToStdClass($defaultToStdClass);
-        return $this;
+    public function withDefaultToStdClass(bool $defaultToStdClass = true): static {
+        $copy = $this->cloneWithConfigBuilder();
+        $copy->configBuilder->withDefaultToStdClass($defaultToStdClass);
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
-    public function withDeserializationErrorPrompt(string $deserializationErrorPrompt): self {
-        $this->configBuilder->withDeserializationErrorPrompt($deserializationErrorPrompt);
-        return $this;
+    public function withDeserializationErrorPrompt(string $deserializationErrorPrompt): static {
+        $copy = $this->cloneWithConfigBuilder();
+        $copy->configBuilder->withDeserializationErrorPrompt($deserializationErrorPrompt);
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
-    public function withThrowOnTransformationFailure(bool $throwOnTransformationFailure = true): self {
-        $this->configBuilder->withThrowOnTransformationFailure($throwOnTransformationFailure);
-        return $this;
+    public function withThrowOnTransformationFailure(bool $throwOnTransformationFailure = true): static {
+        $copy = $this->cloneWithConfigBuilder();
+        $copy->configBuilder->withThrowOnTransformationFailure($throwOnTransformationFailure);
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
-    public function withResponseCachePolicy(ResponseCachePolicy $responseCachePolicy): self {
-        $this->configBuilder->withResponseCachePolicy($responseCachePolicy);
-        return $this;
+    public function withResponseCachePolicy(ResponseCachePolicy $responseCachePolicy): static {
+        $copy = $this->cloneWithConfigBuilder();
+        $copy->configBuilder->withResponseCachePolicy($responseCachePolicy);
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
     // PARTIAL/SEQUENCE UPDATE HANDLERS (from traits) /////////////////////////
@@ -359,17 +360,19 @@ class StructuredOutput
      * @param callable(object): void $listener
      */
     public function onPartialUpdate(callable $listener): static {
-        $this->onPartialResponse = $listener;
-        $this->events->addListener(
-            PartialResponseGenerated::class,
-            $this->handlePartialResponse(...)
-        );
+        if (empty($this->onPartialResponse)) {
+            $this->events->addListener(
+                PartialResponseGenerated::class,
+                $this->handlePartialResponse(...)
+            );
+        }
+        $this->onPartialResponse[] = $listener;
         return $this;
     }
 
     private function handlePartialResponse(PartialResponseGenerated $event): void {
-        if (!is_null($this->onPartialResponse)) {
-            ($this->onPartialResponse)($event->partialResponse);
+        foreach ($this->onPartialResponse as $listener) {
+            $listener($event->partialResponse);
         }
     }
 
@@ -379,17 +382,19 @@ class StructuredOutput
      * @param callable(object): void $listener
      */
     public function onSequenceUpdate(callable $listener): static {
-        $this->onSequenceUpdate = $listener;
-        $this->events->addListener(
-            SequenceUpdated::class,
-            $this->handleSequenceUpdate(...)
-        );
+        if (empty($this->onSequenceUpdate)) {
+            $this->events->addListener(
+                SequenceUpdated::class,
+                $this->handleSequenceUpdate(...)
+            );
+        }
+        $this->onSequenceUpdate[] = $listener;
         return $this;
     }
 
     private function handleSequenceUpdate(SequenceUpdated $event): void {
-        if (!is_null($this->onSequenceUpdate)) {
-            ($this->onSequenceUpdate)($event->sequence);
+        foreach ($this->onSequenceUpdate as $listener) {
+            $listener($event->sequence);
         }
     }
 
@@ -402,26 +407,13 @@ class StructuredOutput
      * for generating the request.
      */
     public function withRequest(StructuredOutputRequest $request): static {
-        $this->request = $request;
-        return $this;
+        $copy = clone $this;
+        $copy->request = $request;
+        return $copy;
     }
 
     /**
      * Sets values for the request builder and configures the StructuredOutput instance
-     *
-     * @param string|array|Message|Messages|null $messages Text or chat sequence to be used for generating the response.
-     * @param string|array|object|null $responseModel The class, JSON schema, or object representing the response format.
-     * @param string|null $system The system instructions (optional).
-     * @param string|null $prompt The prompt to guide the request's response generation (optional).
-     * @param array|null $examples Example data to provide additional context for the request (optional).
-     * @param string|null $model Specifies the model to be employed - check LLM documentation for more details.
-     * @param int|null $maxRetries The maximum number of retries for the request in case of failure.
-     * @param array|null $options Additional LLM options - check LLM documentation for more details.
-     * @param string|null $toolName The name of the tool to be used in OutputMode::Tools.
-     * @param string|null $toolDescription A description of the tool to be used in OutputMode::Tools.
-     * @param string|null $retryPrompt The prompt to be used during retries.
-     * @param OutputMode|null $mode The mode of operation for the request.
-     *
      * @phpstan-ignore-next-line
      */
     public function with(
@@ -439,7 +431,8 @@ class StructuredOutput
         ?OutputMode $mode = null,
         ?ResponseCachePolicy $responseCachePolicy = null,
     ): static {
-        $this->request = $this->request->with(
+        $copy = $this->cloneWithConfigBuilder();
+        $copy->request = $copy->request->with(
             messages: $messages,
             requestedSchema: $responseModel,
             system: $system,
@@ -448,7 +441,7 @@ class StructuredOutput
             model: $model,
             options: $options,
         );
-        $this->configBuilder->with(
+        $copy->configBuilder->with(
             outputMode: $mode,
             maxRetries: $maxRetries,
             retryPrompt: $retryPrompt,
@@ -456,7 +449,17 @@ class StructuredOutput
             toolDescription: $toolDescription,
             responseCachePolicy: $responseCachePolicy,
         );
-        return $this;
+        if (
+            $mode !== null
+            || $maxRetries !== null
+            || $retryPrompt !== null
+            || $toolName !== null
+            || $toolDescription !== null
+            || $responseCachePolicy !== null
+        ) {
+            $copy->invalidateRuntimeCache();
+        }
+        return $copy;
     }
 
     /**
@@ -468,57 +471,111 @@ class StructuredOutput
      *
      * @return PendingStructuredOutput<TResponse> A response object providing access to various results retrieval methods.
      */
-    public function create(): PendingStructuredOutput {
-        if (!$this->request->hasRequestedSchema()) {
-            throw new \Exception('Response model cannot be empty. Provide a class name, instance, or schema array.');
+    public function create(?StructuredOutputRequest $request = null): PendingStructuredOutput {
+        $request = $request ?? $this->request;
+        if (!$request->hasRequestedSchema()) {
+            throw new \InvalidArgumentException('Response model cannot be empty. Provide a class name, instance, or schema array.');
         }
-        $config = $this->configBuilder->create();
-        $request = $this->request;
-        $execution = $this->executionBuilder->createWith(
-            request: $request,
-            config: $config,
-        );
+        return $this->toRuntime()->create($request);
+    }
 
-        $this->events->dispatch(new StructuredOutputRequestReceived(['request' => $request->toArray()]));
+    public function toRuntime(): StructuredOutputRuntime {
+        if (!$this->runtimeCacheDirty && $this->runtimeCache !== null) {
+            return $this->runtimeCache;
+        }
 
-        $pipelineFactory = new StructuredOutputPipelineFactory(
+        $this->runtimeCache = new StructuredOutputRuntime(
+            inference: $this->makeInferenceRuntime(),
             events: $this->events,
-            config: $config,
-            llmProvider: $this->llmProvider ?? LLMProvider::new(events: $this->events),
-            httpClient: $this->httpClient,
-            httpDebugPreset: $this->httpDebugPreset,
+            config: $this->configBuilder->create(),
             validators: $this->validators,
             transformers: $this->transformers,
             deserializers: $this->deserializers,
             extractor: $this->extractor,
             extractors: $this->extractors,
         );
+        $this->runtimeCacheDirty = false;
+        return $this->runtimeCache;
+    }
 
-        $executorFactory = $pipelineFactory->createIteratorFactory();
+    // INTERNAL ////////////////////////////////////////////////////////////////
 
-        $pending = new PendingStructuredOutput(
-            execution: $execution,
-            executorFactory: $executorFactory,
-            events: $this->events,
+    private function makeInferenceRuntime() : CanCreateInference {
+        $resolver = $this->llmResolver ?? $this->llmProvider;
+        $config = $resolver->resolveConfig();
+        $driver = $this->makeInferenceDriver(
+            httpClient: $this->makeHttpClient(),
+            resolver: $resolver,
+            config: $config,
         );
-        return $pending;
+
+        return new InferenceRuntime(
+            driver: $driver,
+            events: $this->events,
+            pricingResolver: new StaticPricingResolver($config->getPricing()),
+        );
+    }
+
+    private function getInferenceFactory() : InferenceDriverFactory {
+        $eventsId = spl_object_id($this->events);
+        if ($this->inferenceFactory === null || $this->inferenceFactoryEventBusId !== $eventsId) {
+            $this->inferenceFactory = new InferenceDriverFactory($this->events);
+            $this->inferenceFactoryEventBusId = $eventsId;
+        }
+        return $this->inferenceFactory;
+    }
+
+    private function makeInferenceDriver(
+        HttpClient $httpClient,
+        CanResolveLLMConfig $resolver,
+        LLMConfig $config,
+    ) : CanProcessInferenceRequest {
+        $explicit = $resolver instanceof HasExplicitInferenceDriver
+            ? $resolver->explicitInferenceDriver()
+            : null;
+
+        if ($explicit !== null) {
+            return $explicit;
+        }
+
+        return $this->getInferenceFactory()->makeDriver(
+            config: $config,
+            httpClient: $httpClient,
+        );
+    }
+
+    private function makeHttpClient() : HttpClient {
+        if ($this->httpClient !== null) {
+            return $this->httpClient;
+        }
+        $builder = new HttpClientBuilder(events: $this->events);
+        if ($this->httpDebugPreset !== null) {
+            $builder = $builder->withDebugPreset($this->httpDebugPreset);
+        }
+        return $builder->create();
     }
 
     // OVERRIDES ///////////////////////////////////////////////////////////////
 
     public function withValidators(CanValidateObject|string ...$validators): static {
-        $this->validators = $validators;
-        return $this;
+        $copy = clone $this;
+        $copy->validators = $validators;
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
     public function withTransformers(CanTransformData|string ...$transformers): static {
-        $this->transformers = $transformers;
-        return $this;
+        $copy = clone $this;
+        $copy->transformers = $transformers;
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
     public function withDeserializers(CanDeserializeClass|string ...$deserializers): static {
-        $this->deserializers = $deserializers;
-        return $this;
+        $copy = clone $this;
+        $copy->deserializers = $deserializers;
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
     /**
@@ -528,13 +585,16 @@ class StructuredOutput
      * Use this to implement custom extraction logic for special formats.
      */
     public function withExtractor(CanExtractResponse $extractor): static {
+        $copy = clone $this;
         // Apply event handler if the extractor supports it (like ResponseExtractor)
         if (method_exists($extractor, 'withEvents')) {
-            $this->extractor = $extractor->withEvents($this->events);
-        } else {
-            $this->extractor = $extractor;
+            $copy->extractor = $extractor->withEvents($copy->events);
+            $copy->invalidateRuntimeCache();
+            return $copy;
         }
-        return $this;
+        $copy->extractor = $extractor;
+        $copy->invalidateRuntimeCache();
+        return $copy;
     }
 
     /**
@@ -547,8 +607,15 @@ class StructuredOutput
      * @param CanExtractResponse|class-string<CanExtractResponse> ...$extractors Custom extractors
      */
     public function withExtractors(CanExtractResponse|string ...$extractors): static {
-        $this->extractors = $extractors;
-        return $this;
+        $copy = clone $this;
+        $copy->extractors = $extractors;
+        $copy->invalidateRuntimeCache();
+        return $copy;
+    }
+
+    protected function invalidateRuntimeCache(): void {
+        $this->runtimeCache = null;
+        $this->runtimeCacheDirty = true;
     }
 
     // SHORTHANDS //////////////////////////////////////////////////////////////
@@ -564,8 +631,7 @@ class StructuredOutput
      * @return StructuredOutputStream<TResponse> A streamed version of the response
      */
     public function stream(): StructuredOutputStream {
-        $this->withStreaming();
-        return $this->create()->stream();
+        return $this->withStreaming()->create()->stream();
     }
 
     // get results converted to specific types

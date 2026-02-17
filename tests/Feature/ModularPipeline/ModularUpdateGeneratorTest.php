@@ -13,19 +13,20 @@ use Cognesy\Instructor\Deserialization\ResponseDeserializer;
 use Cognesy\Instructor\Enums\AttemptPhase;
 use Cognesy\Instructor\ResponseIterators\ModularPipeline\ModularStreamFactory;
 use Cognesy\Instructor\ResponseIterators\ModularPipeline\ModularUpdateGenerator;
-use Cognesy\Instructor\Tests\Support\FakeInferenceDriver;
+use Cognesy\Instructor\Tests\Support\FakeInferenceRequestDriver;
 use Cognesy\Instructor\Transformation\ResponseTransformer;
 use Cognesy\Polyglot\Inference\Data\InferenceResponse;
 use Cognesy\Polyglot\Inference\Data\PartialInferenceResponse;
 use Cognesy\Polyglot\Inference\Data\Usage;
 use Cognesy\Polyglot\Inference\Enums\OutputMode;
+use Cognesy\Polyglot\Inference\InferenceRuntime;
 use Cognesy\Polyglot\Inference\LLMProvider;
 
 class TestGeneratorModel {
     public string $test = '';
 }
 
-function makeModularUpdateGeneratorTestInfrastructure(FakeInferenceDriver $driver): array {
+function makeModularUpdateGeneratorTestInfrastructure(FakeInferenceRequestDriver $driver): array {
     $events = new EventDispatcher();
     $config = new StructuredOutputConfig();
 
@@ -40,7 +41,7 @@ function makeModularUpdateGeneratorTestInfrastructure(FakeInferenceDriver $drive
         ->withDriver($driver);
 
     $inferenceProvider = new InferenceProvider(
-        $llmProvider,
+        InferenceRuntime::fromProvider($llmProvider),
         new RequestMaterializer(),
         $events
     );
@@ -69,7 +70,7 @@ function makeModularUpdateGeneratorExecution($responseModel, $config, $mode = Ou
 }
 
 test('hasNext returns true when not started', function() {
-    $driver = new FakeInferenceDriver(streamBatches: [[]]);
+    $driver = new FakeInferenceRequestDriver(streamBatches: [[]]);
     [$generator, $responseModel, $config] = makeModularUpdateGeneratorTestInfrastructure($driver);
     $execution = makeModularUpdateGeneratorExecution($responseModel, $config);
 
@@ -82,7 +83,7 @@ test('hasNext returns true when stream has more chunks', function() {
         new PartialInferenceResponse(contentDelta: 'lue"}'),
     ];
 
-    $driver = new FakeInferenceDriver(streamBatches: [$chunks]);
+    $driver = new FakeInferenceRequestDriver(streamBatches: [$chunks]);
     [$generator, $responseModel, $config] = makeModularUpdateGeneratorTestInfrastructure($driver);
     $execution = makeModularUpdateGeneratorExecution($responseModel, $config);
 
@@ -97,7 +98,7 @@ test('hasNext returns false when stream exhausted', function() {
         new PartialInferenceResponse(contentDelta: '{"test": "value"}'),
     ];
 
-    $driver = new FakeInferenceDriver(streamBatches: [$chunks]);
+    $driver = new FakeInferenceRequestDriver(streamBatches: [$chunks]);
     [$generator, $responseModel, $config] = makeModularUpdateGeneratorTestInfrastructure($driver);
     $execution = makeModularUpdateGeneratorExecution($responseModel, $config);
 
@@ -113,7 +114,7 @@ test('nextChunk initializes stream on first call', function() {
         new PartialInferenceResponse(contentDelta: '{"test": "value"}'),
     ];
 
-    $driver = new FakeInferenceDriver(streamBatches: [$chunks]);
+    $driver = new FakeInferenceRequestDriver(streamBatches: [$chunks]);
     [$generator, $responseModel, $config] = makeModularUpdateGeneratorTestInfrastructure($driver);
     $execution = makeModularUpdateGeneratorExecution($responseModel, $config);
 
@@ -131,7 +132,7 @@ test('nextChunk processes chunks sequentially', function() {
         new PartialInferenceResponse(contentDelta: 'ue"}'),
     ];
 
-    $driver = new FakeInferenceDriver(streamBatches: [$chunks]);
+    $driver = new FakeInferenceRequestDriver(streamBatches: [$chunks]);
     [$generator, $responseModel, $config] = makeModularUpdateGeneratorTestInfrastructure($driver);
     $execution = makeModularUpdateGeneratorExecution($responseModel, $config);
 
@@ -157,7 +158,7 @@ test('nextChunk updates execution with current attempt', function() {
         new PartialInferenceResponse(contentDelta: '{"test": "value"}'),
     ];
 
-    $driver = new FakeInferenceDriver(streamBatches: [$chunks]);
+    $driver = new FakeInferenceRequestDriver(streamBatches: [$chunks]);
     [$generator, $responseModel, $config] = makeModularUpdateGeneratorTestInfrastructure($driver);
     $execution = makeModularUpdateGeneratorExecution($responseModel, $config);
 
@@ -174,7 +175,7 @@ test('nextChunk accumulates partials in execution', function() {
         new PartialInferenceResponse(contentDelta: 'alue"}'),
     ];
 
-    $driver = new FakeInferenceDriver(streamBatches: [$chunks]);
+    $driver = new FakeInferenceRequestDriver(streamBatches: [$chunks]);
     [$generator, $responseModel, $config] = makeModularUpdateGeneratorTestInfrastructure($driver);
     $execution = makeModularUpdateGeneratorExecution($responseModel, $config);
 
@@ -199,7 +200,7 @@ test('nextChunk marks stream as exhausted when no more chunks', function() {
         new PartialInferenceResponse(contentDelta: '{"test": "value"}'),
     ];
 
-    $driver = new FakeInferenceDriver(streamBatches: [$chunks]);
+    $driver = new FakeInferenceRequestDriver(streamBatches: [$chunks]);
     [$generator, $responseModel, $config] = makeModularUpdateGeneratorTestInfrastructure($driver);
     $execution = makeModularUpdateGeneratorExecution($responseModel, $config);
 
@@ -211,7 +212,7 @@ test('nextChunk marks stream as exhausted when no more chunks', function() {
 });
 
 test('handles empty chunk stream', function() {
-    $driver = new FakeInferenceDriver(streamBatches: [[]]);
+    $driver = new FakeInferenceRequestDriver(streamBatches: [[]]);
     [$generator, $responseModel, $config] = makeModularUpdateGeneratorTestInfrastructure($driver);
     $execution = makeModularUpdateGeneratorExecution($responseModel, $config);
 
@@ -227,7 +228,7 @@ test('preserves existing errors in execution', function() {
         new PartialInferenceResponse(contentDelta: '{"test": "value"}'),
     ];
 
-    $driver = new FakeInferenceDriver(streamBatches: [$chunks]);
+    $driver = new FakeInferenceRequestDriver(streamBatches: [$chunks]);
     [$generator, $responseModel, $config] = makeModularUpdateGeneratorTestInfrastructure($driver);
 
     $execution = makeModularUpdateGeneratorExecution($responseModel, $config)
@@ -253,7 +254,7 @@ test('works with Tools output mode', function() {
         ),
     ];
 
-    $driver = new FakeInferenceDriver(streamBatches: [$chunks]);
+    $driver = new FakeInferenceRequestDriver(streamBatches: [$chunks]);
     [$generator, $responseModel, $config] = makeModularUpdateGeneratorTestInfrastructure($driver);
     $execution = makeModularUpdateGeneratorExecution($responseModel, $config, OutputMode::Tools);
 

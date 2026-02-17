@@ -1,11 +1,9 @@
 <?php declare(strict_types=1);
 
-use Cognesy\Http\Data\HttpRequest;
-use Cognesy\Http\Data\HttpResponse;
 use Cognesy\Instructor\StructuredOutput;
 use Cognesy\Instructor\Validation\Traits\ValidationMixin;
 use Cognesy\Instructor\Validation\ValidationResult;
-use Cognesy\Polyglot\Inference\Contracts\CanHandleInference;
+use Cognesy\Polyglot\Inference\Contracts\CanProcessInferenceRequest;
 use Cognesy\Polyglot\Inference\Data\DriverCapabilities;
 use Cognesy\Polyglot\Inference\Data\InferenceRequest;
 use Cognesy\Polyglot\Inference\Data\InferenceResponse;
@@ -36,7 +34,7 @@ class ValidationRetryUser
     }
 }
 
-final class RecordingInferenceDriver implements CanHandleInference
+final class RecordingInferenceRequestDriver implements CanProcessInferenceRequest
 {
     /** @var ArrayList<InferenceResponse> */
     private ArrayList $responses;
@@ -64,25 +62,6 @@ final class RecordingInferenceDriver implements CanHandleInference
 
     /** @return iterable<PartialInferenceResponse> */
     public function makeStreamResponsesFor(InferenceRequest $request): iterable {
-        return [];
-    }
-
-    public function toHttpRequest(InferenceRequest $request): HttpRequest {
-        return new HttpRequest(
-            url: 'https://mock.local/llm',
-            method: 'POST',
-            headers: [],
-            body: ['messages' => $request->messages()],
-            options: ['stream' => $request->isStreamed()],
-        );
-    }
-
-    public function httpResponseToInference(HttpResponse $httpResponse): InferenceResponse {
-        return new InferenceResponse(content: '');
-    }
-
-    /** @return iterable<PartialInferenceResponse> */
-    public function httpResponseToInferenceStream(HttpResponse $httpResponse): iterable {
         return [];
     }
 
@@ -138,7 +117,7 @@ it('includes validation errors in retry messages for the next LLM attempt', func
             ],
         ])),
     ];
-    $driver = new RecordingInferenceDriver($responses);
+    $driver = new RecordingInferenceRequestDriver($responses);
 
     $result = (new StructuredOutput())
         ->withDriver($driver)

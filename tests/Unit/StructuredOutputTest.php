@@ -1,11 +1,12 @@
 <?php declare(strict_types=1);
 
 use Cognesy\Instructor\StructuredOutput;
+use Cognesy\Instructor\Data\StructuredOutputRequest;
 use Cognesy\Polyglot\Inference\Collections\ToolCalls;
 use Cognesy\Polyglot\Inference\Data\InferenceResponse;
 use Cognesy\Polyglot\Inference\Data\ToolCall;
 use Cognesy\Polyglot\Inference\Enums\OutputMode;
-use Cognesy\Instructor\Tests\Support\FakeInferenceDriver;
+use Cognesy\Instructor\Tests\Support\FakeInferenceRequestDriver;
 
 
 // Simple response class for deserialization
@@ -15,7 +16,7 @@ class TestUserStruct {
 }
 
 it('deserializes basic JSON into response class', function () {
-    $driver = new FakeInferenceDriver([
+    $driver = new FakeInferenceRequestDriver([
         new InferenceResponse(content: '{"name":"Jason","age":25}')
     ]);
 
@@ -37,7 +38,7 @@ it('uses tool call args in Tools mode when present', function () {
     $toolCalls = new ToolCalls(
         new ToolCall('extract', ['name' => 'Jane', 'age' => 22])
     );
-    $driver = new FakeInferenceDriver([
+    $driver = new FakeInferenceRequestDriver([
         new InferenceResponse(content: '', toolCalls: $toolCalls)
     ]);
 
@@ -56,7 +57,7 @@ it('uses tool call args in Tools mode when present', function () {
 });
 
 it('caches processed response within the same PendingStructuredOutput', function () {
-    $driver = new FakeInferenceDriver([
+    $driver = new FakeInferenceRequestDriver([
         new InferenceResponse(content: '{"name":"A","age":1}')
     ]);
 
@@ -89,7 +90,7 @@ it('returns stdClass when defaultToStdClass is enabled for JSON schema output', 
     $toolCalls = new ToolCalls(
         new ToolCall('extract', ['name' => 'Jason', 'age' => 25])
     );
-    $driver = new FakeInferenceDriver([
+    $driver = new FakeInferenceRequestDriver([
         new InferenceResponse(content: '', toolCalls: $toolCalls)
     ]);
 
@@ -108,3 +109,22 @@ it('returns stdClass when defaultToStdClass is enabled for JSON schema output', 
     expect($user->age)->toBe(25);
 });
 
+it('supports runtime-style create with explicit request', function () {
+    $driver = new FakeInferenceRequestDriver([
+        new InferenceResponse(content: '{"name":"Mia","age":31}')
+    ]);
+
+    $pending = (new StructuredOutput)
+        ->withDriver($driver)
+        ->withOutputMode(OutputMode::Json)
+        ->create(new StructuredOutputRequest(
+            messages: 'Extract user',
+            requestedSchema: TestUserStruct::class,
+        ));
+
+    $user = $pending->get();
+
+    expect($user)->toBeInstanceOf(TestUserStruct::class);
+    expect($user->name)->toBe('Mia');
+    expect($user->age)->toBe(31);
+});

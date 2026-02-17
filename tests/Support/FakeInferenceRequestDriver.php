@@ -2,9 +2,7 @@
 
 namespace Cognesy\Instructor\Tests\Support;
 
-use Cognesy\Http\Data\HttpRequest;
-use Cognesy\Http\Data\HttpResponse;
-use Cognesy\Polyglot\Inference\Contracts\CanHandleInference;
+use Cognesy\Polyglot\Inference\Contracts\CanProcessInferenceRequest;
 use Cognesy\Polyglot\Inference\Data\DriverCapabilities;
 use Cognesy\Polyglot\Inference\Data\InferenceRequest;
 use Cognesy\Polyglot\Inference\Data\InferenceResponse;
@@ -16,7 +14,7 @@ use Cognesy\Polyglot\Inference\Enums\OutputMode;
  * - Returns queued InferenceResponse objects for non-streaming
  * - Returns queued arrays of PartialInferenceResponse for streaming
  */
-class FakeInferenceDriver implements CanHandleInference
+class FakeInferenceRequestDriver implements CanProcessInferenceRequest
 {
     /** @var InferenceResponse[] */
     private array $responses;
@@ -48,29 +46,6 @@ class FakeInferenceDriver implements CanHandleInference
         $batch = !empty($this->streamBatches) ? array_shift($this->streamBatches) : [];
         foreach ($batch as $item) {
             yield $item;
-        }
-    }
-
-    public function toHttpRequest(InferenceRequest $request): HttpRequest {
-        return new HttpRequest(
-            url: 'https://mock.local/llm',
-            method: 'POST',
-            headers: [],
-            body: ['messages' => $request->messages()],
-            options: ['stream' => $request->isStreamed()],
-        );
-    }
-
-    public function httpResponseToInference(HttpResponse $httpResponse): InferenceResponse {
-        return new InferenceResponse(content: '');
-    }
-
-    /** @return iterable<PartialInferenceResponse> */
-    public function httpResponseToInferenceStream(HttpResponse $httpResponse): iterable {
-        if (!empty($this->streamBatches)) {
-            foreach ($this->streamBatches[0] as $item) {
-                yield $item;
-            }
         }
     }
 

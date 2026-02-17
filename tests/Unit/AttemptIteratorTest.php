@@ -17,11 +17,12 @@ use Cognesy\Instructor\Exceptions\StructuredOutputRecoveryException;
 use Cognesy\Instructor\ResponseIterators\ModularPipeline\ModularStreamFactory;
 use Cognesy\Instructor\ResponseIterators\ModularPipeline\ModularUpdateGenerator;
 use Cognesy\Instructor\RetryPolicy\DefaultRetryPolicy;
-use Cognesy\Instructor\Tests\Support\FakeInferenceDriver;
+use Cognesy\Instructor\Tests\Support\FakeInferenceRequestDriver;
 use Cognesy\Instructor\Transformation\ResponseTransformer;
 use Cognesy\Instructor\Validation\ResponseValidator;
 use Cognesy\Polyglot\Inference\Data\PartialInferenceResponse;
 use Cognesy\Polyglot\Inference\Enums\OutputMode;
+use Cognesy\Polyglot\Inference\InferenceRuntime;
 use Cognesy\Polyglot\Inference\LLMProvider;
 
 class AttemptTestModel {
@@ -54,7 +55,7 @@ function makeModularStreamIterator(EventDispatcher $events, InferenceProvider $i
 }
 
 it('processes successful streaming attempt end-to-end', function () {
-    $driver = new FakeInferenceDriver(
+    $driver = new FakeInferenceRequestDriver(
         streamBatches: [
             [
                 new PartialInferenceResponse(contentDelta: '{"name":"'),
@@ -67,7 +68,7 @@ it('processes successful streaming attempt end-to-end', function () {
     $llmProvider = LLMProvider::new()->withDriver($driver);
 
     $inferenceProvider = new InferenceProvider(
-        llmProvider: $llmProvider,
+        inference: InferenceRuntime::fromProvider($llmProvider),
         requestMaterializer: new RequestMaterializer(),
         events: $events
     );
@@ -120,7 +121,7 @@ it('processes successful streaming attempt end-to-end', function () {
 
 it('retries on validation failure when retries available', function () {
     // First batch fails validation, second succeeds
-    $driver = new FakeInferenceDriver(
+    $driver = new FakeInferenceRequestDriver(
         streamBatches: [
             // First attempt - invalid age (string instead of int)
             [
@@ -137,7 +138,7 @@ it('retries on validation failure when retries available', function () {
     $llmProvider = LLMProvider::new()->withDriver($driver);
 
     $inferenceProvider = new InferenceProvider(
-        llmProvider: $llmProvider,
+        inference: InferenceRuntime::fromProvider($llmProvider),
         requestMaterializer: new RequestMaterializer(),
         events: $events
     );
@@ -187,7 +188,7 @@ it('retries on validation failure when retries available', function () {
 
 it('throws exception when max retries exceeded', function () {
     // Both attempts fail validation
-    $driver = new FakeInferenceDriver(
+    $driver = new FakeInferenceRequestDriver(
         streamBatches: [
             [new PartialInferenceResponse(contentDelta: '{"name":"Charlie","age":"bad"}')],
             [new PartialInferenceResponse(contentDelta: '{"name":"Charlie","age":"also bad"}')],
@@ -198,7 +199,7 @@ it('throws exception when max retries exceeded', function () {
     $llmProvider = LLMProvider::new()->withDriver($driver);
 
     $inferenceProvider = new InferenceProvider(
-        llmProvider: $llmProvider,
+        inference: InferenceRuntime::fromProvider($llmProvider),
         requestMaterializer: new RequestMaterializer(),
         events: $events
     );
@@ -242,7 +243,7 @@ it('throws exception when max retries exceeded', function () {
 });
 
 it('hasNext returns false when execution is finalized', function () {
-    $driver = new FakeInferenceDriver(
+    $driver = new FakeInferenceRequestDriver(
         streamBatches: [
             [
                 new PartialInferenceResponse(contentDelta: '{"name":"Dave","age":40}'),
@@ -254,7 +255,7 @@ it('hasNext returns false when execution is finalized', function () {
     $llmProvider = LLMProvider::new()->withDriver($driver);
 
     $inferenceProvider = new InferenceProvider(
-        llmProvider: $llmProvider,
+        inference: InferenceRuntime::fromProvider($llmProvider),
         requestMaterializer: new RequestMaterializer(),
         events: $events
     );
@@ -298,7 +299,7 @@ it('hasNext returns false when execution is finalized', function () {
 
 it('clears attempt state between attempts', function () {
     // First attempt fails, second succeeds
-    $driver = new FakeInferenceDriver(
+    $driver = new FakeInferenceRequestDriver(
         streamBatches: [
             [new PartialInferenceResponse(contentDelta: '{"name":"Eve","age":"wrong"}')],
             [new PartialInferenceResponse(contentDelta: '{"name":"Eve","age":28}')],
@@ -309,7 +310,7 @@ it('clears attempt state between attempts', function () {
     $llmProvider = LLMProvider::new()->withDriver($driver);
 
     $inferenceProvider = new InferenceProvider(
-        llmProvider: $llmProvider,
+        inference: InferenceRuntime::fromProvider($llmProvider),
         requestMaterializer: new RequestMaterializer(),
         events: $events
     );
