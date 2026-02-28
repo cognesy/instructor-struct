@@ -14,7 +14,7 @@ use Cognesy\Polyglot\Inference\Enums\OutputMode;
  * - Returns queued InferenceResponse objects for non-streaming
  * - Returns queued arrays of PartialInferenceResponse for streaming
  */
-class FakeInferenceRequestDriver implements CanProcessInferenceRequest
+class FakeInferenceDriver implements CanProcessInferenceRequest
 {
     /** @var InferenceResponse[] */
     private array $responses;
@@ -44,9 +44,7 @@ class FakeInferenceRequestDriver implements CanProcessInferenceRequest
     public function makeStreamResponsesFor(InferenceRequest $request): iterable {
         $this->streamCalls++;
         $batch = !empty($this->streamBatches) ? array_shift($this->streamBatches) : [];
-        foreach ($batch as $item) {
-            yield $item;
-        }
+        yield from FakeStreamFactory::from(...$batch);
     }
 
     public function capabilities(?string $model = null): DriverCapabilities {
@@ -58,4 +56,5 @@ class FakeInferenceRequestDriver implements CanProcessInferenceRequest
             responseFormatWithTools: true,
         );
     }
+
 }
