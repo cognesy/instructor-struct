@@ -27,16 +27,12 @@ This will allow you to customize the library's behavior and use different prompt
 
 These files can be found in the `vendor/cognesy/instructor-php` directory:
 - `.env-dist` - Environment variables for API keys and configuration paths
-- `/config/*.php` - Configurations of Instructor modules
-- `/prompts/*` - Prompt templates for generating structured data from text
+- `/packages/*/resources/**` - Package-scoped YAML configuration and templates
 
 You can publish these files to your project directory by running following command:
 
 ```bash
-./vendor/bin/instructor-setup publish \n
-  --target-config-dir=<target config dir location>
-  --target-prompts-dir=<target prompts dir location>
-  --target-env-file=<target .env file location>
+./vendor/bin/instructor-setup publish <target-dir>
 ```
 
 You can also manually copy the required files to your project directory.
@@ -68,19 +64,16 @@ Check `.env-dist` for other API keys Instructor uses in its default configuratio
 
 ### Step 4: Set Configuration Location (optional)
 
-Instructor uses a configuration directory to store its settings, e.g. LLM provider configurations.
-
-You can set the path to this directory via `Settings::setPath('/path/to/config')` in your code.
-
-But to make it easier you can just set the value in your `.env` file. `Settings` will pick it up automatically
-from there. This way you don't have to set it in every script.
+Keep configuration location at the application edge.
+Load YAML files from explicit paths in your bootstrap using `Config` / `ConfigLoader`,
+then map arrays to typed config objects (`XxxConfig::fromArray()`).
 
 ```ini .env
 INSTRUCTOR_CONFIG_PATHS='/path/to/your/config/dir/,another/path'
 ```
 
 <Note>
-`INSTRUCTOR_CONFIG_PATHS` is set automatically if you use the Instructor CLI tool to publish assets.
+`INSTRUCTOR_CONFIG_PATHS` can still be used by your own bootstrap scripts as an input value.
 </Note>
 
 
@@ -92,16 +85,10 @@ INSTRUCTOR_CONFIG_PATHS='/path/to/your/config/dir/,another/path'
 For Laravel applications, it's recommended to align with the framework's directory structure:
 
 ```bash
-./vendor/bin/instructor-setup publish \
-    --target-config-dir=config/instructor \
-    --target-prompts-dir=resources/prompts \
-    --target-env-file=.env
+./vendor/bin/instructor-setup publish config/instructor
 ```
 
-This will:
-- Place configuration files in Laravel's `config` directory
-- Store prompts in Laravel's `resources` directory
-- Use Laravel's default `.env` file location
+This will place package resources under `config/instructor/<package>/...`.
 
 After publishing, you can load Instructor configuration in your `config/app.php` or create a dedicated service provider.
 
@@ -111,16 +98,10 @@ After publishing, you can load Instructor configuration in your `config/app.php`
 For Symfony applications, use the standard Symfony directory structure:
 
 ```bash
-./vendor/bin/instructor-setup publish \
-    --target-config-dir=config/packages/instructor \
-    --target-prompts-dir=resources/instructor/prompts \
-    --target-env-file=.env
+./vendor/bin/instructor-setup publish config/packages/instructor
 ```
 
-This will:
-- Place configuration in Symfony's package configuration directory
-- Store prompts in Symfony's `resources` directory
-- Use Symfony's default `.env` file location
+This will place package resources under `config/packages/instructor/<package>/...`.
 
 For Symfony Flex applications, you may want to create a recipe to automate this setup process.
 
@@ -144,34 +125,25 @@ and resources to your project, so you can modify them according to your needs. Y
 manually or automatically using the provided CLI tool.
 
 ```bash
-./vendor/bin/instructor-setup publish
+./vendor/bin/instructor-setup publish config/instructor
 ```
 
-By default, this command will:
-1. Copy configuration files from `vendor/cognesy/instructor-php/config` to `config/instructor/`
-2. Copy prompt templates from `vendor/cognesy/instructor-php/prompts` to `resources/prompts/`
-3. Merge (or copy) `vendor/cognesy/instructor-php/.env-dist` file to `.env` with environment variables
+This command scans `vendor/cognesy/instructor-php/packages/*/resources` and mirrors each package resources tree into `<target-dir>/<package>/...`.
 
 ### Command Options
 
-- `-c, --target-config-dir=DIR` - Custom directory for configuration files (default: `config/instructor`)
-- `-p, --target-prompts-dir=DIR` - Custom directory for prompt templates (default: `resources/prompts`)
-- `-e, --target-env-file=FILE` - Custom location for .env file (default: `.env`)
+- `<target>` / `-t, --target-dir=DIR` - Destination root where package resources are published
+- `-p, --package=NAME` - Publish only selected package(s); can be repeated
+- `-x, --exclude-package=NAME` - Exclude selected package(s); can be repeated
+- `-f, --force` - Overwrite existing destination package directories
 - `-l, --log-file=FILE` - Optional log file path to track the publishing process
 - `--no-op` - Dry run mode - shows what would be copied without making changes
 
 ### Example Usage
 
 ```bash
-./vendor/bin/instructor-setup publish \
-    --target-config-dir=./config/instructor \
-    --target-prompts-dir=./resources/prompts \
-    --target-env-file=.env
+./vendor/bin/instructor-setup publish ./config/instructor --package=polyglot --package=templates
 ```
-
-<Note>
-When merging `.env` files, the tool will only add missing variables, preserving your existing file content, formatting and comments.
-</Note>
 
 
 ## Manual Setup
@@ -184,28 +156,30 @@ If you prefer to set up Instructor manually or need more control over the proces
 # Create config in your preferred directory
 mkdir -p config/instructor
 
-# Copy configuration files
-cp -r vendor/cognesy/instructor-php/config/* config/instructor/
+# Copy package resources
+cp -r vendor/cognesy/instructor-php/packages/polyglot/resources config/instructor/polyglot
+cp -r vendor/cognesy/instructor-php/packages/http-client/resources config/instructor/http-client
+cp -r vendor/cognesy/instructor-php/packages/templates/resources config/instructor/templates
 ```
-These files contain LLM API connection settings and Instructor's behavior configuration.
+These resources contain YAML presets and templates used by Instructor modules.
 
 ### Prompt Templates
 
 ```bash
-# Create prompts in your preferred directory
-mkdir -p resources/prompts
+# Create prompts location
+mkdir -p config/instructor/templates
 
-# Copy prompt templates
-cp -r vendor/cognesy/instructor-php/prompts/* resources/prompts/
+# Copy template package resources
+cp -r vendor/cognesy/instructor-php/packages/templates/resources config/instructor/templates
 ```
 Prompt templates define how Instructor communicates with LLMs for different tasks.
 
 ### Environment Configuration
 
-If .env doesn't exist, copy the environment template:
+If `.env` doesn't exist, copy the environment template:
 
 ```bash
-[ ! -f .env ] && cp vendor/cognesy/instructor-php/config/.env-dist .env
+[ ! -f .env ] && cp vendor/cognesy/instructor-php/packages/setup/.env-dist .env
 ```
 
 Add key values to your .env:

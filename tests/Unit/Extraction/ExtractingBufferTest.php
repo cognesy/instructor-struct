@@ -7,7 +7,7 @@ namespace Cognesy\Instructor\Tests\Unit\Extraction;
 use Cognesy\Instructor\Extraction\Buffers\ExtractingBuffer;
 use Cognesy\Instructor\Extraction\Extractors\DirectJsonExtractor;
 use Cognesy\Instructor\Extraction\Extractors\ResilientJsonExtractor;
-use Cognesy\Polyglot\Inference\Enums\OutputMode;
+use Cognesy\Instructor\Enums\OutputMode;
 
 describe('ExtractingBuffer', function () {
     it('creates empty buffer with default extractors', function () {
@@ -20,7 +20,7 @@ describe('ExtractingBuffer', function () {
     });
 
     it('creates buffer with custom extractors', function () {
-        $buffer = ExtractingBuffer::withExtractors(OutputMode::Json, new DirectJsonExtractor());
+        $buffer = ExtractingBuffer::fromExtractors(OutputMode::Json, new DirectJsonExtractor());
 
         expect($buffer->extractors())->toHaveCount(1);
         expect($buffer->extractors()[0])->toBeInstanceOf(DirectJsonExtractor::class);

@@ -26,26 +26,40 @@ if (!function_exists('makeStructuredRuntime')) {
         ?\Cognesy\Polyglot\Inference\Contracts\CanProcessInferenceRequest $driver = null,
         ?\Cognesy\Events\Contracts\CanHandleEvents $events = null,
         ?\Cognesy\Http\HttpClient $httpClient = null,
-        ?string $preset = null,
+        ?string $llmDriver = null,
         ?\Cognesy\Instructor\Config\StructuredOutputConfig $config = null,
+        ?\Cognesy\Instructor\Enums\OutputMode $outputMode = null,
+        ?int $maxRetries = null,
+        ?bool $defaultToStdClass = null,
         array $extractors = [],
         array $validators = [],
         array $transformers = [],
         array $deserializers = [],
     ): \Cognesy\Instructor\StructuredOutputRuntime {
-        $provider = match (true) {
-            $preset !== null => \Cognesy\Polyglot\Inference\LLMProvider::using($preset),
-            default => \Cognesy\Polyglot\Inference\LLMProvider::new(),
-        };
+        $provider = \Cognesy\Polyglot\Inference\LLMProvider::fromLLMConfig(match (true) {
+            $llmDriver !== null => makeLLMConfigForDriver($llmDriver),
+            default => \Cognesy\Polyglot\Inference\Config\LLMConfig::fromArray([]),
+        });
         if ($driver !== null) {
             $provider = $provider->withDriver($driver);
+        }
+
+        $structuredConfig = $config ?? new \Cognesy\Instructor\Config\StructuredOutputConfig();
+        if ($outputMode !== null) {
+            $structuredConfig = $structuredConfig->withOutputMode($outputMode);
+        }
+        if ($maxRetries !== null) {
+            $structuredConfig = $structuredConfig->withMaxRetries($maxRetries);
+        }
+        if ($defaultToStdClass !== null) {
+            $structuredConfig = $structuredConfig->with(defaultToStdClass: $defaultToStdClass);
         }
 
         $runtime = \Cognesy\Instructor\StructuredOutputRuntime::fromProvider(
             provider: $provider,
             events: $events,
             httpClient: $httpClient,
-            structuredConfig: $config,
+            structuredConfig: $structuredConfig,
         );
 
         if (!empty($validators)) {
@@ -61,5 +75,27 @@ if (!function_exists('makeStructuredRuntime')) {
             $runtime = $runtime->withExtractors($extractors);
         }
         return $runtime;
+    }
+}
+
+if (!function_exists('makeLLMConfigForDriver')) {
+    function makeLLMConfigForDriver(string $driver): \Cognesy\Polyglot\Inference\Config\LLMConfig {
+        return match ($driver) {
+            'openai', 'openai-compatible' => new \Cognesy\Polyglot\Inference\Config\LLMConfig(
+                driver: $driver,
+                apiUrl: 'https://api.openai.com/v1',
+                apiKey: 'test',
+                endpoint: '/chat/completions',
+                model: 'gpt-4o-mini',
+            ),
+            'anthropic' => new \Cognesy\Polyglot\Inference\Config\LLMConfig(
+                driver: 'anthropic',
+                apiUrl: 'https://api.anthropic.com/v1',
+                apiKey: 'test',
+                endpoint: '/messages',
+                model: 'claude-3-5-sonnet-latest',
+            ),
+            default => \Cognesy\Polyglot\Inference\Config\LLMConfig::fromArray(['driver' => $driver]),
+        };
     }
 }
