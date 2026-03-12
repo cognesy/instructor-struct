@@ -1,3 +1,9 @@
+---
+title: Instructor
+description: Structured output extraction from LLMs — core API, response models, validation, and streaming
+package: instructor
+---
+
 # Instructor Package Cheatsheet
 
 Code-verified quick reference for `packages/instructor`.
@@ -42,8 +48,8 @@ $so = (new StructuredOutput)
     ->withResponseClass(User::class)
     ->withResponseObject(new User())
     ->withResponseJsonSchema($jsonSchema)
-    ->withSystem('You are a precise extractor')
-    ->withPrompt('Extract user profile')
+    ->withSystem('You are a precise extractor')    // string|\Stringable
+    ->withPrompt('Extract user profile')            // string|\Stringable
     ->withExamples($examples)
     ->withModel('gpt-4o-mini')
     ->withOptions(['temperature' => 0])
@@ -57,8 +63,8 @@ Single-call variant:
 $so = (new StructuredOutput)->with(
     messages: $messages,
     responseModel: User::class,
-    system: '...',
-    prompt: '...',
+    system: '...',                         // string|\Stringable|null
+    prompt: '...',                         // string|\Stringable|null
     examples: $examples,
     model: 'gpt-4o-mini',
     options: ['temperature' => 0],
@@ -79,6 +85,19 @@ $runtime = StructuredOutputRuntime::fromConfig(LLMConfig::fromDsn('driver=openai
     ->withOutputMode(OutputMode::Json)
     ->withMaxRetries(2);
 $so = (new StructuredOutput)->withRuntime($runtime);
+```
+
+## OutputMode Enum
+
+```php
+use Cognesy\Instructor\Enums\OutputMode;
+
+OutputMode::Tools;        // 'tool_call' — default, uses tool/function calling
+OutputMode::Json;         // 'json' — JSON mode
+OutputMode::JsonSchema;   // 'json_schema' — structured outputs / JSON schema mode
+OutputMode::MdJson;       // 'md_json' — extract JSON from Markdown code blocks
+OutputMode::Text;         // 'text' — plain text extraction
+OutputMode::Unrestricted; // 'unrestricted' — no constraints on output format
 ```
 
 ## Pipeline Overrides
@@ -131,7 +150,12 @@ $so->getFloat();
 $so->getBoolean();
 $so->getObject();
 $so->getArray();
-$so->getInstanceOf(User::class);
+```
+
+Additional type helper (only on `PendingStructuredOutput`):
+
+```php
+$pending->getInstanceOf(User::class);
 ```
 
 ## Streaming (`StructuredOutputStream`)
@@ -307,5 +331,5 @@ Deterministic test seams:
   - use when provider adapter and HTTP response shape still matter
 - `Tests\Integration\Support\ProbeStreamDriver`
   - observation helper for streaming immediacy and call-count assertions
-- `Tests\Integration\Support\ProbeIterator`
+- `Tests\Support\ProbeIterator`
   - explicit iterator helper for controlled delta emission in integration tests
