@@ -43,6 +43,23 @@ it('dispatches per-chunk updates immediately when streaming', function () {
     $types = array_map(fn($e) => get_class($e), $captured);
     expect(array_filter($types, fn($t) => $t === StructuredOutputResponseUpdated::class))->toHaveCount(1);
     expect(array_filter($types, fn($t) => $t === StructuredOutputResponseGenerated::class))->toHaveCount(0);
+    $firstUpdate = array_values(array_filter(
+        $captured,
+        fn(object $event): bool => $event instanceof StructuredOutputResponseUpdated,
+    ))[0];
+    expect($firstUpdate->data)->toHaveKeys([
+        'requestId',
+        'executionId',
+        'attemptId',
+        'phase',
+        'phaseId',
+        'content',
+        'value',
+    ]);
+    expect($firstUpdate->data['phase'])->toBe('response.updated');
+    expect($firstUpdate->data['content'])->toBe('{"name":"Ann"');
+    expect($firstUpdate->data['value'])->toBe(['name' => 'Ann']);
+    expect($firstUpdate->data)->not()->toHaveKey('response');
 
     // Step 2
     $iter->next();
@@ -67,4 +84,14 @@ it('dispatches per-chunk updates immediately when streaming', function () {
     $stream->finalResponse();
     $types = array_map(fn($e) => get_class($e), $captured);
     expect(array_filter($types, fn($t) => $t === StructuredOutputResponseGenerated::class))->toHaveCount(1);
+
+    $generated = array_values(array_filter(
+        $captured,
+        fn(object $event): bool => $event instanceof StructuredOutputResponseGenerated,
+    ))[0];
+    expect($generated->data['content'])->toBe('{"name":"Ann","age":30}')
+        ->and($generated->data['value'])->toBe([
+            'age' => 30,
+            'name' => 'Ann',
+        ]);
 });

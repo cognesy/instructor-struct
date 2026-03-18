@@ -2,19 +2,20 @@
 
 namespace Cognesy\Instructor;
 
-use Cognesy\Events\Dispatchers\EventDispatcher;
 use Cognesy\Http\Contracts\CanSendHttpRequests;
 use Cognesy\Events\Contracts\CanHandleEvents;
+use Cognesy\Logging\EventLog;
 use Cognesy\Instructor\Config\StructuredOutputConfig;
 use Cognesy\Instructor\Contracts\CanCreateStructuredOutput;
 use Cognesy\Instructor\Contracts\CanMaterializeRequest;
-use Cognesy\Instructor\Core\RequestMaterializer;
+use Cognesy\Instructor\Core\StructuredPromptRequestMaterializer;
 use Cognesy\Instructor\Creation\StructuredOutputExecutionBuilder;
 use Cognesy\Instructor\Creation\StructuredOutputPipelineFactory;
 use Cognesy\Instructor\Data\StructuredOutputRequest;
 use Cognesy\Instructor\Deserialization\Contracts\CanDeserializeClass;
 use Cognesy\Instructor\Events\StructuredOutput\StructuredOutputRequestReceived;
 use Cognesy\Instructor\Extraction\Contracts\CanExtractResponse;
+use Cognesy\Instructor\Telemetry\StructuredOutputTelemetry;
 use Cognesy\Instructor\Transformation\Contracts\CanTransformData;
 use Cognesy\Instructor\Validation\Contracts\CanValidateObject;
 use Cognesy\Polyglot\Inference\Config\LLMConfig;
@@ -32,7 +33,7 @@ final class StructuredOutputRuntime implements CanCreateStructuredOutput
         private readonly ?CanTransformData $transformer = null,
         private readonly ?CanDeserializeClass $deserializer = null,
         private readonly ?CanExtractResponse $extractor = null,
-        private readonly CanMaterializeRequest $requestMaterializer = new RequestMaterializer(),
+        private readonly CanMaterializeRequest $requestMaterializer = new StructuredPromptRequestMaterializer(),
     ) {}
 
     public static function fromConfig(
@@ -89,7 +90,7 @@ final class StructuredOutputRuntime implements CanCreateStructuredOutput
         if ($events !== null) {
             return $events;
         }
-        return new EventDispatcher(name: 'instructor.structured-output.runtime');
+        return EventLog::root('instructor.structured-output.runtime');
     }
 
     #[\Override]
@@ -103,7 +104,7 @@ final class StructuredOutputRuntime implements CanCreateStructuredOutput
             config: $this->config,
         );
 
-        $this->events->dispatch(new StructuredOutputRequestReceived(['request' => $request->toArray()]));
+        $this->events->dispatch(new StructuredOutputRequestReceived($this->requestReceivedPayload($execution)));
 
         $pipelineFactory = new StructuredOutputPipelineFactory(
             events: $this->events,
@@ -224,5 +225,43 @@ final class StructuredOutputRuntime implements CanCreateStructuredOutput
             extractor: $extractor ?? $this->extractor,
             requestMaterializer: $requestMaterializer ?? $this->requestMaterializer,
         );
+    }
+
+    private function requestReceivedPayload(\Cognesy\Instructor\Data\StructuredOutputExecution $execution) : array
+    {
+        $request = $execution->request();
+        $requestedSchema = $request->requestedSchema();
+
+        $payload = [
+            'requestId' => $request->id()->toString(),
+            'executionId' => $execution->id()->toString(),
+            'phase' => 'request.received',
+            'phaseId' => $this->phaseId($execution->id()->toString(), 'request.received'),
+            'model' => $request->model(),
+            'messageCount' => count($request->messages()->toArray()),
+            'isStreamed' => $request->isStreamed(),
+            'requestedSchemaType' => is_array($requestedSchema) ? 'array' : (is_object($requestedSchema) ? 'object' : 'string'),
+        ];
+
+        if (is_array($requestedSchema)) {
+            $payload['requestedSchemaKeyCount'] = count($requestedSchema);
+            return [...$payload, ...StructuredOutputTelemetry::requestReceived($execution)];
+        }
+
+        if ($requestedSchema !== '') {
+            $payload['requestedSchemaClass'] = is_object($requestedSchema)
+                ? $requestedSchema::class
+                : ltrim($requestedSchema, '\\');
+        }
+
+        return [...$payload, ...StructuredOutputTelemetry::requestReceived($execution)];
+    }
+
+    private function phaseId(string $executionId, string $phase, ?string $attemptId = null) : string
+    {
+        return match ($attemptId) {
+            null => "{$executionId}:{$phase}",
+            default => "{$executionId}:{$phase}:{$attemptId}",
+        };
     }
 }

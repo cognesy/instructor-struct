@@ -8,7 +8,9 @@ use Cognesy\Instructor\Data\StructuredOutputExecution;
 use Cognesy\Instructor\Data\StructuredOutputResponse;
 use Cognesy\Instructor\Events\StructuredOutput\StructuredOutputResponseGenerated;
 use Cognesy\Instructor\Events\StructuredOutput\StructuredOutputResponseUpdated;
+use Cognesy\Instructor\Events\Support\EventValueNormalizer;
 use Cognesy\Instructor\Events\StructuredOutput\StructuredOutputStarted;
+use Cognesy\Instructor\Telemetry\StructuredOutputTelemetry;
 use Cognesy\Instructor\Streaming\Sequence\SequenceTracker;
 use Cognesy\Polyglot\Inference\Data\InferenceResponse;
 use Cognesy\Polyglot\Inference\Data\InferenceUsage;
@@ -48,7 +50,7 @@ class StructuredOutputStream
         $this->emitter = $emitter;
         $this->events = $events;
         $this->cachePolicy = $execution->config()->responseCachePolicy();
-        $this->events->dispatch(new StructuredOutputStarted(['request' => $execution->request()->toArray()]));
+        $this->events->dispatch(new StructuredOutputStarted($this->startedPayload($execution)));
     }
 
     /**
@@ -169,7 +171,10 @@ class StructuredOutputStream
             }
             $this->finalizedResponse = $response;
             $this->lastValue = $this->execution->output();
-            $this->events->dispatch(new StructuredOutputResponseGenerated(['response' => $response]));
+            $this->events->dispatch(new StructuredOutputResponseGenerated($this->responsePayload(
+                response: $response,
+                phase: 'response.generated',
+            )));
             return $this->finalizedResponse;
         }
 
@@ -186,7 +191,10 @@ class StructuredOutputStream
 
         $this->finalizedResponse = $response;
         $this->lastValue = $this->execution->output();
-        $this->events->dispatch(new StructuredOutputResponseGenerated(['response' => $response]));
+        $this->events->dispatch(new StructuredOutputResponseGenerated($this->responsePayload(
+            response: $response,
+            phase: 'response.generated',
+        )));
 
         return $this->finalizedResponse;
     }
@@ -229,7 +237,10 @@ class StructuredOutputStream
             if ($this->shouldCache()) {
                 foreach ($this->cachedResponses as $response) {
                     $this->rememberResponse($response);
-                    $this->events->dispatch(new StructuredOutputResponseUpdated(['response' => $response]));
+                    $this->events->dispatch(new StructuredOutputResponseUpdated($this->responsePayload(
+                        response: $response,
+                        phase: 'response.updated',
+                    )));
                     yield $response;
                 }
                 return;
@@ -250,7 +261,10 @@ class StructuredOutputStream
             }
             $this->rememberResponse($response);
             $this->syncExecutionState($response);
-            $this->events->dispatch(new StructuredOutputResponseUpdated(['response' => $response]));
+            $this->events->dispatch(new StructuredOutputResponseUpdated($this->responsePayload(
+                response: $response,
+                phase: 'response.updated',
+            )));
             yield $response;
         }
 
@@ -308,6 +322,84 @@ class StructuredOutputStream
 
         $this->execution = $this->emitter->execution();
         $this->lastValue = $this->execution->output();
+    }
+
+    private function startedPayload(StructuredOutputExecution $execution) : array
+    {
+        $request = $execution->request();
+        $executionId = $execution->id()->toString();
+
+        return [
+            'requestId' => $request->id()->toString(),
+            'executionId' => $executionId,
+            'phase' => 'execution.started',
+            'phaseId' => $this->phaseId($executionId, 'execution.started'),
+            'model' => $request->model(),
+            'messageCount' => count($request->messages()->toArray()),
+            'isStreamed' => $request->isStreamed(),
+            'attemptCount' => $execution->attemptCount(),
+            ...StructuredOutputTelemetry::executionStarted($execution),
+        ];
+    }
+
+    private function responsePayload(StructuredOutputResponse $response, string $phase) : array
+    {
+        $execution = $this->executionForEvent($response);
+        $request = $execution->request();
+        $executionId = $execution->id()->toString();
+        $attemptId = $execution->activeAttempt()?->id()->toString()
+            ?? $execution->lastFinalizedAttempt()?->id()->toString();
+        $usage = $response->usage();
+
+        return array_filter([
+            'requestId' => $request->id()->toString(),
+            'executionId' => $executionId,
+            'attemptId' => $attemptId,
+            'phase' => $phase,
+            'phaseId' => $this->phaseId($executionId, $phase, $attemptId),
+            'isPartial' => $response->isPartial(),
+            'hasValue' => $response->hasValue(),
+            'valueType' => $this->valueType($response->value()),
+            'value' => EventValueNormalizer::normalize($response->value()),
+            'finishReason' => $response->finishReason()->value,
+            'content' => $response->content(),
+            'contentLength' => strlen($response->content()),
+            'reasoningContent' => $response->reasoningContent(),
+            'reasoningContentLength' => strlen($response->reasoningContent()),
+            'toolArgsSnapshot' => $response->toolArgsSnapshot(),
+            'hasToolCalls' => !$response->toolCalls()->isEmpty(),
+            'toolCallCount' => $response->toolCalls()->count(),
+            'toolCalls' => $response->toolCalls()->toArray(),
+            'inputTokens' => $usage->input(),
+            'outputTokens' => $usage->output(),
+            'cacheWriteTokens' => $usage->cacheWriteTokens,
+            'cacheReadTokens' => $usage->cacheReadTokens,
+            'reasoningTokens' => $usage->reasoningTokens,
+            'totalTokens' => $usage->total(),
+            ...StructuredOutputTelemetry::responseGenerated($execution, $response),
+        ], fn(mixed $value): bool => $value !== null);
+    }
+
+    private function executionForEvent(StructuredOutputResponse $response) : StructuredOutputExecution
+    {
+        if ($response->isPartial()) {
+            return $this->emitter->execution();
+        }
+
+        return $this->execution;
+    }
+
+    private function phaseId(string $executionId, string $phase, ?string $attemptId = null) : string
+    {
+        return match ($attemptId) {
+            null => "{$executionId}:{$phase}",
+            default => "{$executionId}:{$phase}:{$attemptId}",
+        };
+    }
+
+    private function valueType(mixed $value) : string
+    {
+        return is_object($value) ? $value::class : get_debug_type($value);
     }
 
 }
