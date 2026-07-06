@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace Cognesy\Instructor\Collections;
+namespace Cognesy\Instructor\Data;
 
 use Cognesy\Instructor\Data\StructuredOutputAttempt;
 use Cognesy\Polyglot\Inference\Data\InferenceUsage;

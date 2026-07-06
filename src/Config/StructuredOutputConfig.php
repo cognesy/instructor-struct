@@ -126,7 +126,7 @@ final readonly class StructuredOutputConfig
         ];
     }
 
-    public static function fromArray(array $config): self {
+    public static function fromArray(array $config): StructuredOutputConfig {
         try {
             // Ensure 'outputMode' is set to a valid OutputMode enum value
             $config['outputMode'] = match (true) {
@@ -152,12 +152,12 @@ final readonly class StructuredOutputConfig
         return $instance;
     }
 
-    public static function fromDsn(string $dsn): self {
+    public static function fromDsn(string $dsn): StructuredOutputConfig {
         $data = Dsn::fromString($dsn)->toArray();
         return self::fromArray($data);
     }
 
-    public function withOverrides(array $values): self {
+    public function withOverrides(array $values): StructuredOutputConfig {
         $config = array_merge($this->toArray(), $values);
         return self::fromArray($config);
     }
@@ -248,7 +248,13 @@ final readonly class StructuredOutputConfig
      * How many streaming deltas to accumulate before materializing
      * (parsing JSON, deserializing, emitting partial). Higher values
      * reduce CPU cost at the expense of partial-update granularity.
-     * Default: 1 (materialize on every delta).
+     *
+     * Default: 1 — adaptive throttling: materialization requires the
+     * accumulated buffer to grow by ~1/32 of its current size (min 16
+     * bytes) since the last materialization. Early partials stay
+     * token-frequent while total parse+deserialize work remains O(n)
+     * on long outputs. Explicit values > 1 switch to fixed delta-count
+     * throttling (materialize every N deltas).
      */
     public function streamMaterializationInterval(): int {
         return $this->streamMaterializationInterval;
@@ -345,7 +351,7 @@ final readonly class StructuredOutputConfig
         ?bool $throwOnTransformationFailure = null,
         ?ResponseCachePolicy $responseCachePolicy = null,
         ?int $streamMaterializationInterval = null,
-    ): self {
+    ): StructuredOutputConfig {
         return new self(
             outputMode: $outputMode ?? $this->outputMode,
             outputClass: $outputClass ?? $this->outputClass,
