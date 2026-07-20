@@ -4,4 +4,4 @@ namespace Cognesy\Instructor\Events\Response;
 
 use Cognesy\Instructor\Events\StructuredOutputEvent;
 
-final class ResponseConvertedToObject extends StructuredOutputEvent {}
+final class ResponseMaterialized extends StructuredOutputEvent {}
