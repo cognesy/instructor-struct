@@ -6,6 +6,7 @@ use Cognesy\Instructor\Contracts\CanDetermineRetry;
 use Cognesy\Instructor\Contracts\CanGenerateResponse;
 use Cognesy\Instructor\Data\ResponseFailure;
 use Cognesy\Instructor\Data\StructuredOutputExecution;
+use Cognesy\Instructor\Telemetry\StructuredOutputTelemetry;
 use Cognesy\Instructor\Data\StructuredOutputResponse;
 use Cognesy\Instructor\Events\Response\ResponseMaterializationFailed;
 use Cognesy\Instructor\Events\Response\ResponseMaterialized;
@@ -22,20 +23,54 @@ final readonly class AttemptProcessor
         private EventDispatcherInterface $events,
     ) {}
 
-    public function process(
+    /**
+     * Finishes the attempt by extracting the value out of the inference response.
+     */
+    public function processInferenceResponse(
         StructuredOutputExecution $execution,
         InferenceResponse $inferenceResponse,
-        mixed $materializationInput = null,
     ): AttemptProcessingResult {
         $responseModel = $execution->responseModel();
         assert($responseModel !== null, 'Response model cannot be null');
 
-        $materializationResult = $this->responseGenerator->makeResponse(
+        // Both phase contexts are built here because this is the boundary that wraps the whole
+        // extract-then-materialize call and holds the execution. Neither the extraction stack
+        // nor the validator knows what an execution is.
+        return $this->finish($execution, $inferenceResponse, $this->responseGenerator->fromInferenceResponse(
             $inferenceResponse,
             $responseModel,
             $execution->outputMode(),
-            $materializationInput,
-        );
+            StructuredOutputTelemetry::extractionContext($execution),
+            StructuredOutputTelemetry::validationContext($execution),
+        ));
+    }
+
+    /**
+     * Finishes the attempt from a value the caller already holds. `$inferenceResponse` is
+     * still needed to record the attempt, but it is not the source of the value.
+     */
+    public function processMaterializedInput(
+        StructuredOutputExecution $execution,
+        InferenceResponse $inferenceResponse,
+        mixed $input,
+    ): AttemptProcessingResult {
+        $responseModel = $execution->responseModel();
+        assert($responseModel !== null, 'Response model cannot be null');
+
+        // The streaming path skips extraction - the aggregator already holds the value - but it
+        // still materializes, so validation is just as much a phase of this execution.
+        return $this->finish($execution, $inferenceResponse, $this->responseGenerator->fromMaterializedInput(
+            $input,
+            $responseModel,
+            StructuredOutputTelemetry::validationContext($execution),
+        ));
+    }
+
+    private function finish(
+        StructuredOutputExecution $execution,
+        InferenceResponse $inferenceResponse,
+        Result $materializationResult,
+    ): AttemptProcessingResult {
         $this->reportMaterialization($execution, $materializationResult);
 
         if ($materializationResult->isSuccess()) {

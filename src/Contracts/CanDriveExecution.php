@@ -6,10 +6,11 @@ use Cognesy\Instructor\Data\StructuredOutputExecution;
 use Cognesy\Instructor\Data\StructuredOutputResponse;
 
 /**
- * Lightweight streaming contract that yields emissions directly,
- * avoiding per-emission StructuredOutputExecution copy chains.
+ * Pull-based execution-driver contract: the caller repeatedly asks whether
+ * another emission is available and pulls it, avoiding per-emission
+ * StructuredOutputExecution copy chains.
  */
-interface CanEmitStreamingUpdates
+interface CanDriveExecution
 {
     public function hasNextEmission(): bool;
     public function nextEmission(): ?StructuredOutputResponse;
